@@ -18,7 +18,7 @@ model.predict(events)         TRIBE v2 forward pass
    ▼
 compute_stats(preds)          aggregate into marketing metrics
    │
-   ├── render_brain_png()     → cortical surface PNG
+   ├── render_brain_png()     → cortical surface PNG (mean activation)
    └── compute_delta_stats()  → comparison between two ads
 ```
 
@@ -39,81 +39,30 @@ preds.shape == (n_segments, 81924)
 - **Rows** — one per TR (repetition time ≈ 2 seconds). A 30-second ad produces ~15 rows.
 - **Columns** — one per vertex on the `fsaverage5` cortical surface mesh (40,962 per hemisphere × 2). Each value is a predicted **BOLD signal** — positive means more activation than baseline, negative means less.
 
+> All scores displayed in the UI are multiplied by 1000 (milli-BOLD units) to keep the numbers readable. Raw values are typically in the range 0.001–0.01.
+
 ---
 
-## Metrics tracked
+## Metrics
 
 ### Overall Brain Score
-```python
-preds.mean()   # scalar — mean BOLD activation across all vertices and all TRs
-```
-The single headline number. Higher = more total cortical engagement across the whole ad. Used to determine the winner in a comparison.
-
-> Note: this is an absolute BOLD estimate, not normalised to 0–100. Raw values are typically small (e.g. 0.002), but what matters is which ad scores higher.
-
----
-
-### Engagement over time
-```python
-preds.mean(axis=1)   # shape (n_segments,) — mean activation per TR
-```
-Mean activation collapsed across all brain vertices, one value per ~2s segment. Plotted as the engagement timeline in the UI. The segment with the highest value is the **Peak Moment**.
-
----
-
-### Early Attention Score (log-weighted)
-
-A custom metric that weights brain activation in the **first seconds of the ad more heavily** than later moments, using logarithmic decay:
-
-```
-w_i = log(N+1) − log(i+1)       i = segment index (0 = first), N = total segments
-
-early_attention_score = Σ(w_i × engagement_i) / Σ(w_i)
-```
-
-In a 30s ad (15 TRs): segment 0 (0–2s) carries weight ≈ 2.77, segment 14 (28–30s) carries weight ≈ 0.06 — roughly 45× less.
 
 ```python
-weights = np.array([np.log(N + 1) - np.log(i + 1) for i in range(N)])
-early_attention_score = float(np.dot(weights, engagement_over_time) / weights.sum())
+preds.mean()   # scalar — mean BOLD across all vertices and all TRs
 ```
 
-**Why this matters:** viewer attention and purchase intent are heavily front-loaded. An ad that spikes neural engagement at the start beats one that builds slowly, even if their `overall_score` is similar. If `early_attention_score > overall_score`, the opening is outperforming the rest. If it's lower, the ad gets better as it goes.
-
----
-
-### Peak Moment
-```python
-timestamps[np.argmax(preds.mean(axis=1))]   # seconds into the ad
-```
-The timestamp of the TR with the highest whole-brain mean activation. Useful for identifying which part of the ad drives the strongest neural response.
-
----
-
-### Brain regions (HCP parcellation)
-
-The 81,924 vertices are grouped into **180 named cortical areas** using the [HCP MMP1.0 parcellation](https://www.nature.com/articles/nature18933) (Glasser et al., 2016). Each area covers a functionally distinct patch of cortex.
-
-Per-ROI score:
-```python
-summarize_by_roi(preds_mean)   # mean of preds_mean within each of the 180 ROIs
-```
-
-Top activated regions:
-```python
-get_topk_rois(preds_mean, k=10)   # names of the 10 highest-scoring ROIs
-```
+The headline number. Higher = more total cortical engagement across the whole ad. Used to determine the winner in a head-to-head comparison.
 
 ---
 
 ### Ad Impact Score
 
-A composite score designed to predict purchase intent more directly than raw BOLD activation. It averages activation across two systems that research links to advertising effectiveness:
+A composite score designed to predict purchase intent more directly than raw whole-brain BOLD. It averages activation across the brain regions most strongly linked to advertising effectiveness: the **attention network** and **cortical reward-adjacent areas**.
 
-**Attention network** — the brain's top-down attentional control system:
+**Attention network** — top-down attentional control:
 `FEF · 7PC · VIP · LIPv · LIPd · IPS1`
 
-**Cortical reward-adjacent regions** — areas tightly coupled to the dopamine/reward circuit that are present in the cortical surface mesh (note: the Nucleus Accumbens and ventral striatum are subcortical and not predicted by TRIBE v2):
+**Cortical reward-adjacent regions** — areas tightly coupled to the dopamine/reward circuit that lie on the cortical surface. (The Nucleus Accumbens and ventral striatum are subcortical structures and are not predicted by TRIBE v2's cortical mesh model.)
 
 | Region group | HCP areas | Marketing relevance |
 |---|---|---|
@@ -124,24 +73,77 @@ A composite score designed to predict purchase intent more directly than raw BOL
 | Temporal pole | TGd · TGv | Emotional memory, brand/social recognition |
 
 ```python
-impact_score = mean(preds_mean[IMPACT_ROIS])
+impact_score = _safe_roi_mean(preds_mean, IMPACT_ROIS)
 ```
 
 An ad that scores high here is capturing sustained attention **and** activating the brain's value-assessment and emotional-memory systems — a stronger predictor of conversion than whole-brain engagement alone.
 
 ---
 
-### Cognitive breakdown scores
+### Early Attention Score
 
-Three grouped scores that map brain regions to things a marketer cares about:
+Weights brain activation in the **first seconds of the ad more heavily** than later moments using logarithmic decay, based on the principle that viewer attention is front-loaded.
 
-| Score | Brain regions | What it means |
+```
+w_i = log(N+1) − log(i+1)       i = segment index (0 = first), N = total segments
+
+early_attention_score = Σ(w_i × engagement_i) / Σ(w_i)
+```
+
+In a 30s ad (15 TRs): segment 0 (0–2s) carries weight ≈ 2.77, segment 14 (28–30s) carries weight ≈ 0.06 — roughly 45× less.
+
+**How to read it:**
+- `early_attention_score > overall_score` → the opening is outperforming the rest of the ad
+- `early_attention_score < overall_score` → the ad builds and gets stronger as it goes
+
+---
+
+### Engagement over time
+
+```python
+preds.mean(axis=1)   # shape (n_segments,) — mean activation per TR
+```
+
+Mean BOLD collapsed across all cortical vertices, one value per ~2s segment. Plotted as the engagement timeline in the UI. Also drives the **real-time stats**: as the video plays, the UI shows the current segment's activation value relative to the ad's mean.
+
+---
+
+### Peak Moment
+
+```python
+timestamps[np.argmax(preds.mean(axis=1))]   # seconds
+```
+
+The timestamp of the segment with the highest whole-brain mean activation — the moment the ad drives the strongest neural response.
+
+---
+
+### Cognitive breakdown
+
+Three grouped scores mapping brain systems to marketing questions:
+
+| Score | Brain regions | Question it answers |
 |---|---|---|
-| **Visual cortex** | V1, V2, V3, V4, MT, MST, V3A, V3B | How much the visual creative is being processed — motion, colour, objects |
-| **Language cortex** | 44 (Broca), 45 (Broca), STSdp, STSda, STSvp, STSva, TE1a, TE1m | How much the spoken or written message is being processed |
-| **Attention network** | FEF, 7PC, VIP, LIPv, LIPd, IPS1 | How much the brain's top-down attention system is engaged |
+| **Visual cortex** | V1 · V2 · V3 · V4 · MT · MST · V3A · V3B | Is the visual creative landing? |
+| **Language cortex** | 44 · 45 · STSdp · STSda · STSvp · STSva · TE1a · TE1m | Is the voiceover or copy being processed? |
+| **Attention network** | FEF · 7PC · VIP · LIPv · LIPd · IPS1 | Is the viewer paying attention? |
 
-Each score is the mean of `preds_mean` across all vertices belonging to those ROIs. Higher = more activation in that cognitive system.
+Each score is the mean of `preds_mean` across all vertices in those regions.
+
+---
+
+### Per-segment top regions
+
+For every TR in the ad, the top 3 activated HCP regions are precomputed:
+
+```python
+for i in range(n_segments):
+    seg_roi = summarize_by_roi(preds[i])
+    top3_idx = np.argsort(seg_roi)[::-1][:3]
+    per_segment_top_rois.append([roi_names[j] for j in top3_idx])
+```
+
+Shown in the UI as "Active regions" and updated in real time as the video plays.
 
 ---
 
@@ -151,14 +153,60 @@ Each score is the mean of `preds_mean` across all vertices belonging to those RO
 delta = preds_mean_b - preds_mean_a   # shape (81924,) — per-vertex difference
 ```
 
-Computed for every vertex on the surface. Rendered as the **difference brain map** (red = B stronger, blue = A stronger). Also summarised per ROI to produce the **Top differentiating regions** bar chart.
+Computed for every vertex. Rendered as the **difference brain map** (red = B stronger, blue = A stronger). Also summarised per ROI for the "Where they differ most" bar chart.
 
-Winner is simply whichever ad has a higher `overall_score`.
+Winner is determined by `overall_score`. Tie threshold: `|delta| < 1e-6`.
+
+---
+
+## HCP region glossary
+
+| Abbreviation | Full name | System | Description |
+|---|---|---|---|
+| **Visual** ||||
+| V1 | Primary Visual Cortex | Visual | First cortical stage of vision — edges, contrast, basic orientation |
+| V2 | Secondary Visual Cortex | Visual | Passes signals to both ventral (what) and dorsal (where) streams |
+| V3 / V3A / V3B | Visual Area V3 | Visual | Motion and depth; V3A strongly driven by motion and optical flow |
+| V4 | Visual Area V4 | Visual | Colour, shape, object form — critical for brand colour and logo processing |
+| MT | Middle Temporal Area | Visual | Dedicated motion processing; responsive to fast cuts and moving objects |
+| MST | Medial Superior Temporal Area | Visual | Optic flow and self-motion perception; wide-field camera movement |
+| DVT | Dorsal Visual Transition Area | Visual | Bridge between motion areas and parietal attention regions |
+| **Language** ||||
+| 44 | Broca's Area BA44 | Language | Core speech production; activated by voiceover and dialogue |
+| 45 | Broca's Area BA45 | Language | Speech comprehension; active when processing meaning of spoken words |
+| STSdp / STSda | Superior Temporal Sulcus — dorsal | Language | Integrates audio-visual speech; processes talking faces and lip sync |
+| STSvp / STSva | Superior Temporal Sulcus — ventral | Language | Higher-level semantic integration of spoken language in context |
+| TE1a / TE1m / TE1p | Temporal Area TE1 | Language | Auditory association cortex; voice identity, tone, non-speech sounds |
+| **Attention** ||||
+| FEF | Frontal Eye Field | Attention | Controls voluntary gaze and directs attention to salient screen regions |
+| IPS1 | Intraparietal Sulcus Area 1 | Attention | Holds the attentional spotlight; tracks objects across time |
+| VIP | Ventral Intraparietal Area | Attention | Integrates visual, tactile, auditory signals; responds to salient stimuli |
+| LIPv / LIPd | Lateral Intraparietal Area | Attention | Encodes priority maps — where attention should go next |
+| 7PC | Parietal Area 7PC | Attention | Top-down attentional control and working memory for visual locations |
+| **Reward / Impact** ||||
+| 47l / 13l / 11l / 47s | Orbitofrontal Cortex | Reward | Computes subjective value and expected reward; predicts willingness to pay |
+| 11m / 25 / 10v | vmPFC / mPFC | Reward | Self-referential processing and reward anticipation; active when content feels personally relevant |
+| p24 / a24 / d32 | Anterior Cingulate Cortex | Reward | Motivational salience and effort allocation; bridges emotion and action |
+| Ig / PoI1 / AVI / AAIC | Insula | Reward | Interoceptive awareness and emotional salience — the neurological basis of gut feeling |
+| TGd / TGv | Temporal Pole | Reward | Links perception to emotional memory; key for brand familiarity and social recognition |
+| **Other** ||||
+| TPOJ1 / TPOJ2 / TPOJ3 | Temporo-Parieto-Occipital Junction | Multisensory | Integrates audio-visual inputs; social cognition and perspective-taking |
+| PH / PGp | Parieto-occipital areas | Spatial | Scene perception and spatial layout processing |
 
 ---
 
 ## Caching
 
-Inference is slow on CPU (several minutes per video). Results are saved to `outputs/cache/<sha256>.pkl` after the first run. The SHA256 is computed from the file bytes, so the same video always hits the cache regardless of filename.
+Three layers keep repeated inference off the hot path:
+
+| Layer | Location | Lifetime |
+|---|---|---|
+| Session state | `st.session_state` | Browser tab |
+| Disk cache (stats) | `outputs/client_cache/<hash>/` | Permanent |
+| Inference cache | `outputs/cache/<hash>.pkl` | Permanent |
+
+The SHA256 hash is computed from the video file bytes, so the same video always hits cache regardless of filename or upload path.
 
 Brain PNGs are saved to `outputs/renders/` and reused the same way.
+
+If a cached result is missing a score that was added in a later version (e.g. `impact_score`), it is **backfilled on load** from the stored `preds_mean.npy` without re-running inference.

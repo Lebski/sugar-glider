@@ -12,6 +12,7 @@ import os
 import threading
 from pathlib import Path
 
+import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
@@ -188,6 +189,23 @@ def save_upload(uploaded_file) -> tuple[str, str] | tuple[None, None]:
     return str(dest), h
 
 
+def _backfill_scores(stats: dict) -> None:
+    """Recompute scores added after a result was originally cached, in-place."""
+    preds_mean = stats.get("preds_mean")
+    if preds_mean is None:
+        return
+    if stats.get("impact_score") is None:
+        stats["impact_score"] = brain._safe_roi_mean(preds_mean, brain.IMPACT_ROIS)
+    if stats.get("early_attention_score") is None:
+        eng = stats["engagement_over_time"]
+        N = len(eng)
+        if N > 1:
+            weights = np.array([np.log(N + 1) - np.log(i + 1) for i in range(N)])
+            stats["early_attention_score"] = float(np.dot(weights, eng) / weights.sum())
+        else:
+            stats["early_attention_score"] = float(eng[0]) if N == 1 else 0.0
+
+
 def run_and_cache(label: str, video_path: str, video_hash: str, model) -> dict | None:
     """
     Three-layer cache:
@@ -207,6 +225,7 @@ def run_and_cache(label: str, video_path: str, video_hash: str, model) -> dict |
     if cached is not None:
         cached["video_path"] = video_path
         cached["video_hash"] = video_hash
+        _backfill_scores(cached["stats"])
         st.session_state[cache_key] = cached
         return cached
 
@@ -378,40 +397,47 @@ def results_panel(label: str, result: dict, color: str):
             st.metric("Language cortex (×10⁻³)", f"{stats['language_score'] * 1000:.2f}", help="Broca (BA44/45) · Superior Temporal Sulcus (STS) · TE1a · TE1m\nHow much spoken or written language is being processed")
             st.metric("Attention network (×10⁻³)", f"{stats['attention_score'] * 1000:.2f}", help="FEF · IPS1 · VIP · LIPv · LIPd · 7PC\nHow strongly top-down attention and gaze control are engaged")
 
-        with st.expander("Region legend"):
-            st.markdown("""
-| Abbreviation | Full name | System |
-|---|---|---|
-| **Visual cortex** |||
-| V1 | Primary Visual Cortex | Visual |
-| V2 | Secondary Visual Cortex | Visual |
-| V3 / V3A / V3B | Visual Areas V3 (dorsal stream) | Visual |
-| V4 | Visual Area V4 (colour/form) | Visual |
-| MT | Middle Temporal Area (motion) | Visual |
-| MST | Medial Superior Temporal Area | Visual |
-| DVT | Dorsal Visual Transition Area | Visual |
-| **Language** |||
-| 44 / 45 | Broca's Area (speech production / comprehension) | Language |
-| STSdp / STSda | Superior Temporal Sulcus — dorsal post. / ant. | Language |
-| STSvp / STSva | Superior Temporal Sulcus — ventral post. / ant. | Language |
-| TE1a / TE1m | Temporal Area TE1 (auditory association) | Language |
-| **Attention** |||
-| FEF | Frontal Eye Field (top-down visual attention) | Attention |
-| IPS1 | Intraparietal Sulcus Area 1 | Attention |
-| VIP | Ventral Intraparietal Area | Attention |
-| LIPv / LIPd | Lateral Intraparietal Area (ventral / dorsal) | Attention |
-| 7PC | Parietal Area 7PC | Attention |
-| **Reward / Impact** |||
-| 47l / 13l / 11l / 47s | Orbitofrontal Cortex (value, willingness to pay) | Reward |
-| 11m / 25 / 10v | vmPFC / mPFC (reward anticipation, self-relevance) | Reward |
-| p24 / a24 / d32 | Anterior Cingulate (motivation, emotional salience) | Reward |
-| Ig / PoI1 / AVI / AAIC | Insula (interoceptive salience, gut-feeling) | Reward |
-| TGd / TGv | Temporal Pole (emotional memory, brand recognition) | Reward |
-| **Other** |||
-| TPOJ1 / TPOJ2 | Temporo-Parieto-Occipital Junction | Multisensory |
-| PH / PGp | Parieto-occipital areas | Spatial |
-""")
 
+
+
+# -----------------------------------------------------------------------
+# Region legend
+# -----------------------------------------------------------------------
+
+def region_legend():
+    with st.expander("Region legend"):
+        st.markdown("""
+| Abbreviation | Full name | System | Description |
+|---|---|---|---|
+| **Visual cortex** ||||
+| V1 | Primary Visual Cortex | Visual | First cortical stage of vision — edges, contrast, basic orientation |
+| V2 | Secondary Visual Cortex | Visual | Passes visual signals to both ventral (what) and dorsal (where) streams |
+| V3 / V3A / V3B | Visual Area V3 | Visual | Processes motion and depth; V3A is strongly driven by motion and optical flow |
+| V4 | Visual Area V4 | Visual | Colour, shape, and object form — critical for brand colour and logo processing |
+| MT | Middle Temporal Area | Visual | Dedicated motion processing; highly responsive to fast cuts and moving objects |
+| MST | Medial Superior Temporal Area | Visual | Optic flow and self-motion perception; responds to wide-field camera movement |
+| DVT | Dorsal Visual Transition Area | Visual | Bridge between motion areas and parietal attention regions |
+| **Language** ||||
+| 44 / 45 | Broca's Area | Language | Core speech production (44) and comprehension (45); activated by voiceover and dialogue |
+| STSdp / STSda | Superior Temporal Sulcus — dorsal | Language | Integrates audio and visual speech cues; processes talking faces and lip sync |
+| STSvp / STSva | Superior Temporal Sulcus — ventral | Language | Higher-level semantic integration of spoken language in context |
+| TE1a / TE1m | Temporal Area TE1 | Language | Auditory association cortex; processes voice identity, tone, and non-speech sounds |
+| **Attention** ||||
+| FEF | Frontal Eye Field | Attention | Controls voluntary gaze and directs attention to salient regions of the screen |
+| IPS1 | Intraparietal Sulcus Area 1 | Attention | Holds the attentional spotlight; tracks multiple objects across time |
+| VIP | Ventral Intraparietal Area | Attention | Integrates visual, tactile, and auditory signals; responds to stimuli near the body |
+| LIPv / LIPd | Lateral Intraparietal Area | Attention | Encodes priority maps — where in the scene attention should go next |
+| 7PC | Parietal Area 7PC | Attention | Top-down attentional control and working memory for visual locations |
+| **Reward / Impact** ||||
+| 47l / 13l / 11l / 47s | Orbitofrontal Cortex | Reward | Computes subjective value and expected reward; predicts willingness to pay |
+| 11m / 25 / 10v | vmPFC / mPFC | Reward | Self-referential processing and reward anticipation; active when content feels personally relevant |
+| p24 / a24 / d32 | Anterior Cingulate Cortex | Reward | Signals motivational salience and effort allocation; bridges emotion and action |
+| Ig / PoI1 / AVI / AAIC | Insula | Reward | Interoceptive awareness and emotional salience — the neurological basis of gut feeling |
+| TGd / TGv | Temporal Pole | Reward | Links perception to emotional memory; key for brand familiarity and social recognition |
+| **Other** ||||
+| TPOJ1 / TPOJ2 | Temporo-Parieto-Occipital Junction | Multisensory | Integrates audio-visual inputs; involved in social cognition and perspective-taking |
+| PH / PGp | Parieto-occipital areas | Spatial | Scene perception and spatial layout processing |
+""")
 
 
 # -----------------------------------------------------------------------
@@ -527,6 +553,7 @@ if compare_clicked and path_a and path_b:
         with col_b:
             results_panel("b", result_b, color="rgb(239, 68, 68)")
         comparison_section(result_a, result_b)
+        region_legend()
 
 elif "result_a" in st.session_state and "result_b" in st.session_state:
     result_a = st.session_state["result_a"]
