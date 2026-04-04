@@ -13,6 +13,7 @@ dependencies = [
     "plotly>=5.24.0",
     "python-dotenv>=1.2.2",
     "python-multipart>=0.0.22",
+    "seaborn>=0.13.2",
     "streamlit>=1.40.0",
     "streamlit-shadcn-ui>=0.1.19",
     "tribev2",
