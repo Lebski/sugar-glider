@@ -10,6 +10,10 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
+
 import brain
 from tribev2 import TribeModel
 
