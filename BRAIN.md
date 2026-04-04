@@ -61,6 +61,27 @@ Mean activation collapsed across all brain vertices, one value per ~2s segment. 
 
 ---
 
+### Early Attention Score (log-weighted)
+
+A custom metric that weights brain activation in the **first seconds of the ad more heavily** than later moments, using logarithmic decay:
+
+```
+w_i = log(N+1) − log(i+1)       i = segment index (0 = first), N = total segments
+
+early_attention_score = Σ(w_i × engagement_i) / Σ(w_i)
+```
+
+In a 30s ad (15 TRs): segment 0 (0–2s) carries weight ≈ 2.77, segment 14 (28–30s) carries weight ≈ 0.06 — roughly 45× less.
+
+```python
+weights = np.array([np.log(N + 1) - np.log(i + 1) for i in range(N)])
+early_attention_score = float(np.dot(weights, engagement_over_time) / weights.sum())
+```
+
+**Why this matters:** viewer attention and purchase intent are heavily front-loaded. An ad that spikes neural engagement at the start beats one that builds slowly, even if their `overall_score` is similar. If `early_attention_score > overall_score`, the opening is outperforming the rest. If it's lower, the ad gets better as it goes.
+
+---
+
 ### Peak Moment
 ```python
 timestamps[np.argmax(preds.mean(axis=1))]   # seconds into the ad

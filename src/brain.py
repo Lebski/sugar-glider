@@ -163,6 +163,13 @@ def compute_stats(preds: np.ndarray, segments: list) -> dict:
     preds_mean = preds.mean(axis=0)  # (n_vertices,)
     engagement_over_time = preds.mean(axis=1)  # (n_segments,)
 
+    N = len(engagement_over_time)
+    if N > 1:
+        weights = np.array([np.log(N + 1) - np.log(i + 1) for i in range(N)])
+        early_attention_score = float(np.dot(weights, engagement_over_time) / weights.sum())
+    else:
+        early_attention_score = float(engagement_over_time[0]) if N == 1 else 0.0
+
     peak_idx = int(np.argmax(engagement_over_time))
     try:
         timestamps = [float(seg.start) for seg in segments]
@@ -193,6 +200,7 @@ def compute_stats(preds: np.ndarray, segments: list) -> dict:
         "visual_score": _safe_roi_mean(preds_mean, VISUAL_ROIS),
         "language_score": _safe_roi_mean(preds_mean, LANGUAGE_ROIS),
         "attention_score": _safe_roi_mean(preds_mean, ATTENTION_ROIS),
+        "early_attention_score": early_attention_score,
         "preds_mean": preds_mean,
     }
 
@@ -305,6 +313,7 @@ if __name__ == "__main__":
     print(f"Visual score: {stats['visual_score']:.6f}")
     print(f"Language score: {stats['language_score']:.6f}")
     print(f"Attention score: {stats['attention_score']:.6f}")
+    print(f"Early attention score: {stats['early_attention_score']:.6f}")
 
     png_path = "outputs/renders/test_brain.png"
     render_brain_png(stats["preds_mean"], png_path)

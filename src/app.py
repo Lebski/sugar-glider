@@ -127,23 +127,24 @@ def run_and_cache(label: str, video_path: str, video_hash: str, model) -> dict |
         st.session_state[cache_key] = cached
         return cached
 
-    # Layer 3: run inference
-    with st.status(
-        f"Analyzing Ad {label.upper()} — this may take a few minutes...",
-        expanded=True,
-    ) as status:
-        st.write("Extracting features from video...")
-        preds, segments = brain.run_inference(video_path, model)
-        st.write("Computing brain statistics...")
-        stats = brain.compute_stats(preds, segments)
-        st.write("Rendering brain map...")
-        png_path = f"outputs/renders/{video_hash}_mean.png"
-        brain.render_brain_png(stats["preds_mean"], png_path)
-        st.write("Saving to cache...")
-        result_cache.save(
-            video_hash, stats, Path(png_path).read_bytes()
-        )
-        status.update(label=f"Ad {label.upper()} ready.", state="complete")
+    # Layer 3: run inference — wrap in a placeholder so we can clear it when done
+    placeholder = st.empty()
+    with placeholder.container():
+        with st.status(
+            f"Analyzing Ad {label.upper()} — this may take a few minutes...",
+            expanded=True,
+        ) as status:
+            st.write("Extracting features from video...")
+            preds, segments = brain.run_inference(video_path, model)
+            st.write("Computing brain statistics...")
+            stats = brain.compute_stats(preds, segments)
+            st.write("Rendering brain map...")
+            png_path = f"outputs/renders/{video_hash}_mean.png"
+            brain.render_brain_png(stats["preds_mean"], png_path)
+            st.write("Saving to cache...")
+            result_cache.save(video_hash, stats, Path(png_path).read_bytes())
+            status.update(label=f"Ad {label.upper()} ready.", state="complete")
+    placeholder.empty()
 
     result = {
         "video_path": video_path,
@@ -244,10 +245,11 @@ def results_panel(label: str, result: dict, color: str):
             st.caption("Brain map not available.")
 
     with stats_tab:
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("Brain Score", f"{stats['overall_score']:.5f}")
-        c2.metric("Peak Moment", f"{stats['peak_timestamp_s']:.0f}s")
-        c3.metric("Duration", f"{len(stats['engagement_over_time'])} TRs")
+        c2.metric("Early Attention", f"{stats['early_attention_score']:.5f}", help="Log-weighted score — first seconds count more")
+        c3.metric("Peak Moment", f"{stats['peak_timestamp_s']:.0f}s")
+        c4.metric("Duration", f"{len(stats['engagement_over_time'])} TRs")
 
         st.markdown("**Engagement over time**")
         st.plotly_chart(engagement_chart(stats, color), use_container_width=True, key=f"eng_{label}")
