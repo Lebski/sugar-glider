@@ -6,6 +6,9 @@ A marketing tool for comparing how video ads drive brain responses, built on [TR
 
 - Python 3.10+
 - [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
+- **ffmpeg** — required by WhisperX for audio decoding:
+  - macOS: `brew install ffmpeg`
+  - Ubuntu/Debian: `sudo apt install ffmpeg`
 - A HuggingFace account with access to [meta-llama/Llama-3.2-3B](https://huggingface.co/meta-llama/Llama-3.2-3B)
 
 ## Installation

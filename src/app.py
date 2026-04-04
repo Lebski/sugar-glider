@@ -236,6 +236,8 @@ def delta_roi_chart(delta_stats: dict) -> go.Figure:
 
 def results_panel(label: str, result: dict, color: str):
     stats = result["stats"]
+    if result.get("video_path") and Path(result["video_path"]).exists():
+        st.video(result["video_path"])
     brain_tab, stats_tab = st.tabs(["Brain Map", "Statistics"])
 
     with brain_tab:
