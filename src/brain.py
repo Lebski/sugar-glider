@@ -189,6 +189,12 @@ def compute_stats(preds: np.ndarray, segments: list) -> dict:
     roi_names = list(get_hcp_labels(mesh="fsaverage5").keys())
     roi_scores = dict(zip(roi_names, [float(v) for v in roi_values]))
 
+    per_segment_top_rois = []
+    for i in range(len(preds)):
+        seg_roi = summarize_by_roi(preds[i])
+        top3_idx = np.argsort(seg_roi)[::-1][:3]
+        per_segment_top_rois.append([roi_names[j] for j in top3_idx])
+
     return {
         "overall_score": float(preds.mean()),
         "peak_segment_idx": peak_idx,
@@ -201,6 +207,7 @@ def compute_stats(preds: np.ndarray, segments: list) -> dict:
         "language_score": _safe_roi_mean(preds_mean, LANGUAGE_ROIS),
         "attention_score": _safe_roi_mean(preds_mean, ATTENTION_ROIS),
         "early_attention_score": early_attention_score,
+        "per_segment_top_rois": per_segment_top_rois,
         "preds_mean": preds_mean,
     }
 

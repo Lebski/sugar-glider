@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { margin: 0; background: transparent; overflow: hidden; }
+    video { width: 100%; display: block; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <video id="v" controls></video>
+  <script src="https://unpkg.com/streamlit-component-lib/dist/index.js"></script>
+  <script>
+    const v = document.getElementById('v');
+    let lastSeg = -1;
+
+    Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, (event) => {
+      const { video_url, segment_timestamps } = event.detail.args;
+
+      if (v.getAttribute('data-src') !== video_url) {
+        v.src = video_url;
+        v.setAttribute('data-src', video_url);
+        lastSeg = -1;
+      }
+
+      v.ontimeupdate = () => {
+        const t = v.currentTime;
+        const seg = segment_timestamps.filter(ts => ts <= t).length - 1;
+        if (seg !== lastSeg && seg >= 0) {
+          lastSeg = seg;
+          Streamlit.setComponentValue(seg);
+        }
+      };
+
+      // Update height once video metadata is known
+      v.onloadedmetadata = () => Streamlit.setFrameHeight(v.offsetHeight + 4);
+      Streamlit.setFrameHeight(v.offsetHeight || 280);
+    });
+
+    Streamlit.setComponentReady();
+  </script>
+</body>
+</html>

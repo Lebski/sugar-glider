@@ -5,12 +5,16 @@ Compares brain responses to two ad videos using TRIBE v2.
 Run with: uv run streamlit run src/app.py
 """
 
+import functools
 import hashlib
+import http.server
 import os
+import threading
 from pathlib import Path
 
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 import brain
@@ -72,6 +76,45 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# -----------------------------------------------------------------------
+# File server (serves project root so the video component iframe can load videos)
+# -----------------------------------------------------------------------
+
+FILE_SERVER_PORT = 8765
+
+@st.cache_resource(show_spinner=False)
+def start_file_server() -> int:
+    handler = functools.partial(
+        http.server.SimpleHTTPRequestHandler,
+        directory=str(Path(".").resolve()),
+    )
+    server = http.server.HTTPServer(("127.0.0.1", FILE_SERVER_PORT), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return FILE_SERVER_PORT
+
+
+_video_player_component = components.declare_component(
+    "video_player",
+    path=str(Path(__file__).parent / "components" / "video_player"),
+)
+
+
+def video_player(video_path: str, segment_timestamps: list) -> int:
+    """Renders a synced video player. Returns the current segment index."""
+    port = start_file_server()
+    try:
+        rel = Path(video_path).resolve().relative_to(Path(".").resolve())
+        url = f"http://localhost:{port}/{rel.as_posix()}"
+    except ValueError:
+        # Path outside project root — fall back to st.video
+        st.video(video_path)
+        return 0
+    seg = _video_player_component(
+        video_url=url, segment_timestamps=segment_timestamps, default=0
+    )
+    return seg if seg is not None else 0
+
 
 # -----------------------------------------------------------------------
 # Model
@@ -160,7 +203,7 @@ def run_and_cache(label: str, video_path: str, video_hash: str, model) -> dict |
 # Charts
 # -----------------------------------------------------------------------
 
-def engagement_chart(stats: dict, color: str) -> go.Figure:
+def engagement_chart(stats: dict, color: str, cursor_idx: int | None = None) -> go.Figure:
     times = stats["segment_timestamps"]
     values = stats["engagement_over_time"].tolist()
     peak_idx = stats["peak_segment_idx"]
@@ -181,6 +224,14 @@ def engagement_chart(stats: dict, color: str) -> go.Figure:
             annotation_text=f"Peak {times[peak_idx]:.0f}s",
             annotation_position="top right",
             annotation_font_size=11,
+        )
+    if cursor_idx is not None and 0 <= cursor_idx < len(times):
+        fig.add_vline(
+            x=times[cursor_idx],
+            line=dict(color="#6b7280", dash="dot", width=1.5),
+            annotation_text=f"▶ {times[cursor_idx]:.0f}s",
+            annotation_position="top left",
+            annotation_font_size=10,
         )
     fig.update_layout(
         height=180, margin=dict(t=10, b=30, l=50, r=10),
@@ -236,8 +287,11 @@ def delta_roi_chart(delta_stats: dict) -> go.Figure:
 
 def results_panel(label: str, result: dict, color: str):
     stats = result["stats"]
+    seg_idx = 0
+
     if result.get("video_path") and Path(result["video_path"]).exists():
-        st.video(result["video_path"])
+        seg_idx = video_player(result["video_path"], stats["segment_timestamps"])
+
     brain_tab, stats_tab = st.tabs(["Brain Map", "Statistics"])
 
     with brain_tab:
@@ -247,14 +301,37 @@ def results_panel(label: str, result: dict, color: str):
             st.caption("Brain map not available.")
 
     with stats_tab:
+        # Average metrics
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Brain Score", f"{stats['overall_score']:.5f}")
-        c2.metric("Early Attention", f"{stats['early_attention_score']:.5f}", help="Log-weighted score — first seconds count more")
+        early = stats.get("early_attention_score")
+        c2.metric("Early Attention", f"{early:.5f}" if early is not None else "—", help="Log-weighted score — first seconds count more")
         c3.metric("Peak Moment", f"{stats['peak_timestamp_s']:.0f}s")
         c4.metric("Duration", f"{len(stats['engagement_over_time'])} TRs")
 
+        # Live / current-segment stats
+        seg_ts = stats["segment_timestamps"]
+        seg_act = stats["engagement_over_time"]
+        mean_act = float(seg_act.mean())
+        current_val = float(seg_act[seg_idx]) if seg_idx < len(seg_act) else mean_act
+        per_seg_rois = stats.get("per_segment_top_rois", [])
+        top_rois_now = per_seg_rois[seg_idx] if seg_idx < len(per_seg_rois) else []
+
+        ts_label = f"{seg_ts[seg_idx]:.0f}s" if seg_idx < len(seg_ts) else "0s"
+        st.markdown(f"**Now · {ts_label}**")
+        lc1, lc2 = st.columns(2)
+        lc1.metric(
+            "Segment activation",
+            f"{current_val:.5f}",
+            delta=f"{current_val - mean_act:+.5f} vs mean",
+        )
+        lc2.metric("Active regions", " · ".join(top_rois_now) if top_rois_now else "—")
+
         st.markdown("**Engagement over time**")
-        st.plotly_chart(engagement_chart(stats, color), use_container_width=True, key=f"eng_{label}")
+        st.plotly_chart(
+            engagement_chart(stats, color, cursor_idx=seg_idx),
+            use_container_width=True, key=f"eng_{label}",
+        )
 
         st.markdown("**Top activated regions**")
         st.plotly_chart(roi_bar_chart(stats, color), use_container_width=True, key=f"roi_{label}")
