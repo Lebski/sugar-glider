@@ -21,6 +21,24 @@ VISUAL_ROIS = ["V1", "V2", "V3", "V4", "MT", "MST", "V3A", "V3B"]
 LANGUAGE_ROIS = ["44", "45", "STSdp", "STSda", "STSvp", "STSva", "TE1a", "TE1m"]
 ATTENTION_ROIS = ["FEF", "7PC", "VIP", "LIPv", "LIPd", "IPS1"]
 
+# Ad Impact Score — attention network + cortical reward-adjacent regions
+# (Nucleus Accumbens / ventral striatum are subcortical and not in the cortical mesh;
+#  these are the cortical areas most tightly coupled to the dopamine/reward circuit)
+IMPACT_ROIS = [
+    # Top-down attention
+    "FEF", "7PC", "VIP", "LIPv", "LIPd", "IPS1",
+    # Orbitofrontal cortex — value computation, willingness to pay
+    "47l", "13l", "11l", "47s",
+    # vmPFC / mPFC — reward anticipation, self-relevance
+    "11m", "25", "10v",
+    # Anterior cingulate — motivation, emotional salience
+    "p24", "a24", "d32",
+    # Insula — interoceptive salience, gut-feeling response
+    "Ig", "PoI1", "AVI", "AAIC",
+    # Temporal pole — emotional memory, brand/social recognition
+    "TGd", "TGv",
+]
+
 
 def hash_video(video_path: str) -> str:
     """SHA256 hash of a video file, used as cache key."""
@@ -206,6 +224,7 @@ def compute_stats(preds: np.ndarray, segments: list) -> dict:
         "visual_score": _safe_roi_mean(preds_mean, VISUAL_ROIS),
         "language_score": _safe_roi_mean(preds_mean, LANGUAGE_ROIS),
         "attention_score": _safe_roi_mean(preds_mean, ATTENTION_ROIS),
+        "impact_score": _safe_roi_mean(preds_mean, IMPACT_ROIS),
         "early_attention_score": early_attention_score,
         "per_segment_top_rois": per_segment_top_rois,
         "preds_mean": preds_mean,

@@ -106,6 +106,31 @@ get_topk_rois(preds_mean, k=10)   # names of the 10 highest-scoring ROIs
 
 ---
 
+### Ad Impact Score
+
+A composite score designed to predict purchase intent more directly than raw BOLD activation. It averages activation across two systems that research links to advertising effectiveness:
+
+**Attention network** — the brain's top-down attentional control system:
+`FEF · 7PC · VIP · LIPv · LIPd · IPS1`
+
+**Cortical reward-adjacent regions** — areas tightly coupled to the dopamine/reward circuit that are present in the cortical surface mesh (note: the Nucleus Accumbens and ventral striatum are subcortical and not predicted by TRIBE v2):
+
+| Region group | HCP areas | Marketing relevance |
+|---|---|---|
+| Orbitofrontal Cortex | 47l · 13l · 11l · 47s | Value computation, willingness to pay |
+| vmPFC / mPFC | 11m · 25 · 10v | Reward anticipation, self-relevance |
+| Anterior Cingulate | p24 · a24 · d32 | Motivation, emotional salience |
+| Insula | Ig · PoI1 · AVI · AAIC | Interoceptive salience, gut-feeling response |
+| Temporal pole | TGd · TGv | Emotional memory, brand/social recognition |
+
+```python
+impact_score = mean(preds_mean[IMPACT_ROIS])
+```
+
+An ad that scores high here is capturing sustained attention **and** activating the brain's value-assessment and emotional-memory systems — a stronger predictor of conversion than whole-brain engagement alone.
+
+---
+
 ### Cognitive breakdown scores
 
 Three grouped scores that map brain regions to things a marketer cares about:

@@ -341,34 +341,28 @@ def results_panel(label: str, result: dict, color: str):
             st.caption("Brain map not available.")
 
     with stats_tab:
-        # Average metrics — values scaled ×1000 (milli-BOLD) to fit metric boxes
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Brain Score", f"{stats['overall_score'] * 1000:.2f}", help="Mean predicted BOLD activation ×10⁻³")
-        early = stats.get("early_attention_score")
-        c2.metric("Early Attn", f"{early * 1000:.2f}" if early is not None else "—", help="Log-weighted score — first seconds count more (×10⁻³ BOLD)")
-        c3.metric("Peak Moment", f"{stats['peak_timestamp_s']:.0f}s")
-        c4.metric("Duration", f"{len(stats['engagement_over_time'])} TRs")
-
-        # Live / current-segment stats
         seg_ts = stats["segment_timestamps"]
         seg_act = stats["engagement_over_time"]
         mean_act = float(seg_act.mean())
         current_val = float(seg_act[seg_idx]) if seg_idx < len(seg_act) else mean_act
         per_seg_rois = stats.get("per_segment_top_rois", [])
         top_rois_now = per_seg_rois[seg_idx] if seg_idx < len(per_seg_rois) else []
-
         ts_label = f"{seg_ts[seg_idx]:.0f}s" if seg_idx < len(seg_ts) else "0s"
-        st.markdown(f"**Now · {ts_label}**")
-        lc1, lc2 = st.columns(2)
-        lc1.metric(
-            "Now (×10⁻³)",
-            f"{current_val * 1000:.2f}",
-            delta=f"{(current_val - mean_act) * 1000:+.2f} vs mean",
-        )
+        early = stats.get("early_attention_score")
         roi_help = "\n".join(
             f"{r}: {HCP_ROI_NAMES.get(r, 'HCP cortical area')}" for r in top_rois_now
         ) if top_rois_now else None
-        lc2.metric("Active regions", " · ".join(top_rois_now) if top_rois_now else "—", help=roi_help)
+
+        # All metrics stacked vertically
+        st.metric("Brain Score (×10⁻³)", f"{stats['overall_score'] * 1000:.2f}", help="Mean predicted BOLD activation across all vertices and segments")
+        impact = stats.get("impact_score")
+        st.metric("Ad Impact Score (×10⁻³)", f"{impact * 1000:.2f}" if impact is not None else "—", help="Attention network + cortical reward-adjacent regions (OFC, vmPFC, ACC, Insula, Temporal pole)")
+        st.metric("Early Attention (×10⁻³)", f"{early * 1000:.2f}" if early is not None else "—", help="Log-weighted score — first seconds count more")
+        st.metric("Peak Moment", f"{stats['peak_timestamp_s']:.0f}s")
+        st.metric("Duration", f"{len(seg_act)} TRs")
+        st.divider()
+        st.metric(f"Now · {ts_label} (×10⁻³)", f"{current_val * 1000:.2f}", delta=f"{(current_val - mean_act) * 1000:+.2f} vs mean")
+        st.metric("Active regions", " · ".join(top_rois_now) if top_rois_now else "—", help=roi_help)
 
         st.markdown("**Engagement over time**")
         st.plotly_chart(
@@ -380,10 +374,44 @@ def results_panel(label: str, result: dict, color: str):
         st.plotly_chart(roi_bar_chart(stats, color), use_container_width=True, key=f"roi_{label}")
 
         with st.expander("Cognitive breakdown"):
-            ca, cb, cc = st.columns(3)
-            ca.metric("Visual cortex", f"{stats['visual_score'] * 1000:.2f}", help="V1 · V2 · V3 · V4 · MT · MST · V3A · V3B\nHow strongly the visual creative is being processed — motion, colour, objects")
-            cb.metric("Language cortex", f"{stats['language_score'] * 1000:.2f}", help="Broca (BA44/45) · Superior Temporal Sulcus (STS) · TE1a · TE1m\nHow much spoken or written language is being processed")
-            cc.metric("Attention network", f"{stats['attention_score'] * 1000:.2f}", help="FEF · IPS1 · VIP · LIPv · LIPd · 7PC\nHow strongly top-down attention and gaze control are engaged")
+            st.metric("Visual cortex (×10⁻³)", f"{stats['visual_score'] * 1000:.2f}", help="V1 · V2 · V3 · V4 · MT · MST · V3A · V3B\nHow strongly the visual creative is being processed — motion, colour, objects")
+            st.metric("Language cortex (×10⁻³)", f"{stats['language_score'] * 1000:.2f}", help="Broca (BA44/45) · Superior Temporal Sulcus (STS) · TE1a · TE1m\nHow much spoken or written language is being processed")
+            st.metric("Attention network (×10⁻³)", f"{stats['attention_score'] * 1000:.2f}", help="FEF · IPS1 · VIP · LIPv · LIPd · 7PC\nHow strongly top-down attention and gaze control are engaged")
+
+        with st.expander("Region legend"):
+            st.markdown("""
+| Abbreviation | Full name | System |
+|---|---|---|
+| **Visual cortex** |||
+| V1 | Primary Visual Cortex | Visual |
+| V2 | Secondary Visual Cortex | Visual |
+| V3 / V3A / V3B | Visual Areas V3 (dorsal stream) | Visual |
+| V4 | Visual Area V4 (colour/form) | Visual |
+| MT | Middle Temporal Area (motion) | Visual |
+| MST | Medial Superior Temporal Area | Visual |
+| DVT | Dorsal Visual Transition Area | Visual |
+| **Language** |||
+| 44 / 45 | Broca's Area (speech production / comprehension) | Language |
+| STSdp / STSda | Superior Temporal Sulcus — dorsal post. / ant. | Language |
+| STSvp / STSva | Superior Temporal Sulcus — ventral post. / ant. | Language |
+| TE1a / TE1m | Temporal Area TE1 (auditory association) | Language |
+| **Attention** |||
+| FEF | Frontal Eye Field (top-down visual attention) | Attention |
+| IPS1 | Intraparietal Sulcus Area 1 | Attention |
+| VIP | Ventral Intraparietal Area | Attention |
+| LIPv / LIPd | Lateral Intraparietal Area (ventral / dorsal) | Attention |
+| 7PC | Parietal Area 7PC | Attention |
+| **Reward / Impact** |||
+| 47l / 13l / 11l / 47s | Orbitofrontal Cortex (value, willingness to pay) | Reward |
+| 11m / 25 / 10v | vmPFC / mPFC (reward anticipation, self-relevance) | Reward |
+| p24 / a24 / d32 | Anterior Cingulate (motivation, emotional salience) | Reward |
+| Ig / PoI1 / AVI / AAIC | Insula (interoceptive salience, gut-feeling) | Reward |
+| TGd / TGv | Temporal Pole (emotional memory, brand recognition) | Reward |
+| **Other** |||
+| TPOJ1 / TPOJ2 | Temporo-Parieto-Occipital Junction | Multisensory |
+| PH / PGp | Parieto-occipital areas | Spatial |
+""")
+
 
 
 # -----------------------------------------------------------------------
