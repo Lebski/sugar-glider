@@ -31,6 +31,11 @@ def hash_video(video_path: str) -> str:
     return h.hexdigest()
 
 
+def hash_bytes(data: bytes) -> str:
+    """SHA256 hash of in-memory bytes, used as cache key for API uploads."""
+    return hashlib.sha256(data).hexdigest()
+
+
 def _patch_whisperx_compute_type():
     """
     tribev2 hardcodes compute_type='float16' for whisperx, which fails on CPU.
@@ -166,7 +171,12 @@ def compute_stats(preds: np.ndarray, segments: list) -> dict:
 
     peak_ts = timestamps[peak_idx] if timestamps else 0.0
 
-    top_rois = list(get_topk_rois(preds_mean, k=10))
+    # get_topk_rois passes dict_keys directly to np.array(), which creates a
+    # 0-d object array on some numpy versions. Re-implement with list() fix.
+    roi_labels = list(get_hcp_labels(mesh="fsaverage5").keys())
+    roi_summary = summarize_by_roi(preds_mean)
+    top_k_idx = np.argsort(roi_summary)[::-1][:10]
+    top_rois = [roi_labels[i] for i in top_k_idx]
 
     roi_values = summarize_by_roi(preds_mean)
     roi_names = list(get_hcp_labels(mesh="fsaverage5").keys())

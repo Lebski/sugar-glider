@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 
 import brain
 import library
+import result_cache
 
 load_dotenv()
 
@@ -91,26 +92,44 @@ def get_model():
 # Helpers
 # -----------------------------------------------------------------------
 
-def save_upload(uploaded_file) -> str | None:
+def save_upload(uploaded_file) -> tuple[str, str] | tuple[None, None]:
+    """Save an uploaded file to disk. Returns (path, hash)."""
     if uploaded_file is None:
-        return None
+        return None, None
     data = uploaded_file.read()
     h = hashlib.sha256(data).hexdigest()
     dest = Path("uploads") / f"{h}.mp4"
     dest.parent.mkdir(parents=True, exist_ok=True)
     if not dest.exists():
         dest.write_bytes(data)
-    return str(dest)
+    return str(dest), h
 
 
-def run_and_cache(label: str, video_path: str, model) -> dict | None:
+def run_and_cache(label: str, video_path: str, video_hash: str, model) -> dict | None:
+    """
+    Three-layer cache:
+      1. st.session_state  — instant, lives for the browser session
+      2. outputs/client_cache/<hash>/  — survives refreshes and new sessions
+      3. API call  — only when neither cache has the result
+    """
     cache_key = f"result_{label}"
+
+    # Layer 1: session state
     if cache_key in st.session_state:
-        if st.session_state[cache_key].get("video_path") == video_path:
+        if st.session_state[cache_key].get("video_hash") == video_hash:
             return st.session_state[cache_key]
 
+    # Layer 2: disk cache
+    cached = result_cache.load(video_hash)
+    if cached is not None:
+        cached["video_path"] = video_path
+        cached["video_hash"] = video_hash
+        st.session_state[cache_key] = cached
+        return cached
+
+    # Layer 3: run inference
     with st.status(
-        f"Analyzing Ad {label.upper()} — this may take a few minutes on CPU...",
+        f"Analyzing Ad {label.upper()} — this may take a few minutes...",
         expanded=True,
     ) as status:
         st.write("Extracting features from video...")
@@ -118,17 +137,19 @@ def run_and_cache(label: str, video_path: str, model) -> dict | None:
         st.write("Computing brain statistics...")
         stats = brain.compute_stats(preds, segments)
         st.write("Rendering brain map...")
-        vid_hash = brain.hash_video(video_path)
-        png_path = f"outputs/renders/{vid_hash}_mean.png"
+        png_path = f"outputs/renders/{video_hash}_mean.png"
         brain.render_brain_png(stats["preds_mean"], png_path)
+        st.write("Saving to cache...")
+        result_cache.save(
+            video_hash, stats, Path(png_path).read_bytes()
+        )
         status.update(label=f"Ad {label.upper()} ready.", state="complete")
 
     result = {
         "video_path": video_path,
-        "preds": preds,
-        "segments": segments,
+        "video_hash": video_hash,
         "stats": stats,
-        "brain_png": png_path,
+        "brain_png": str(result_cache._dir(video_hash) / "brain.png"),
     }
     st.session_state[cache_key] = result
     return result
@@ -270,8 +291,8 @@ def comparison_section(result_a: dict, result_b: dict):
 
     with col_map:
         st.markdown("**Brain difference map (B − A)**")
-        ha = brain.hash_video(result_a["video_path"])
-        hb = brain.hash_video(result_b["video_path"])
+        ha = result_a["video_hash"]
+        hb = result_b["video_hash"]
         delta_png = f"outputs/renders/{ha}_{hb}_delta.png"
         if not Path(delta_png).exists():
             with st.spinner("Rendering difference map..."):
@@ -285,7 +306,8 @@ def comparison_section(result_a: dict, result_b: dict):
 # Sidebar
 # -----------------------------------------------------------------------
 
-def ad_selector(slot: str) -> str | None:
+def ad_selector(slot: str) -> tuple[str, str] | tuple[None, None]:
+    """Returns (video_path, video_hash) or (None, None)."""
     st.sidebar.markdown(f"**Ad {slot.upper()}**")
     mode = st.sidebar.radio(
         "Source", ["Library", "Upload"],
@@ -295,12 +317,16 @@ def ad_selector(slot: str) -> str | None:
         names = library.get_library_names()
         if not names:
             st.sidebar.warning("No ads found — add .mp4 files to **ads/**.")
-            return None
-        selected = st.sidebar.selectbox("Ad", names, key=f"lib_{slot}", label_visibility="collapsed")
-        return library.get_library_path(selected)
+            return None, None
+        selected = st.sidebar.selectbox(
+            "Ad", names, key=f"lib_{slot}", label_visibility="collapsed"
+        )
+        path = library.get_library_path(selected)
+        return path, brain.hash_video(path)
     else:
         uploaded = st.sidebar.file_uploader(
-            "Upload .mp4", type=["mp4"], key=f"upload_{slot}", label_visibility="collapsed",
+            "Upload .mp4", type=["mp4"], key=f"upload_{slot}",
+            label_visibility="collapsed",
         )
         return save_upload(uploaded)
 
@@ -316,9 +342,9 @@ st.caption(
 )
 
 st.sidebar.title("Select Ads")
-path_a = ad_selector("a")
+path_a, hash_a = ad_selector("a")
 st.sidebar.markdown("---")
-path_b = ad_selector("b")
+path_b, hash_b = ad_selector("b")
 st.sidebar.markdown("---")
 compare_clicked = st.sidebar.button(
     "Compare",
@@ -338,10 +364,10 @@ if compare_clicked and path_a and path_b:
     col_a, col_b = st.columns(2)
     with col_a:
         st.subheader("Ad A")
-        result_a = run_and_cache("a", path_a, model)
+        result_a = run_and_cache("a", path_a, hash_a, model)
     with col_b:
         st.subheader("Ad B")
-        result_b = run_and_cache("b", path_b, model)
+        result_b = run_and_cache("b", path_b, hash_b, model)
 
     if result_a and result_b:
         with col_a:
