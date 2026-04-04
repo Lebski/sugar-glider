@@ -21,6 +21,46 @@ import brain
 import library
 import result_cache
 
+# HCP MMP1.0 region name glossary (abbreviation → full name)
+HCP_ROI_NAMES = {
+    "V1": "Primary Visual Cortex",
+    "V2": "Secondary Visual Cortex",
+    "V3": "Visual Area V3",
+    "V4": "Visual Area V4",
+    "V3A": "Visual Area V3A (dorsal stream)",
+    "V3B": "Visual Area V3B",
+    "MT": "Middle Temporal Area (motion perception)",
+    "MST": "Medial Superior Temporal Area",
+    "DVT": "Dorsal Visual Transition Area",
+    "PIT": "Posterior Inferotemporal Area",
+    "FST": "Fundus Superior Temporal Area",
+    "LO1": "Lateral Occipital Area 1",
+    "LO2": "Lateral Occipital Area 2",
+    "LO3": "Lateral Occipital Area 3",
+    "44": "Broca's Area BA44 (speech production)",
+    "45": "Broca's Area BA45 (speech comprehension)",
+    "STSdp": "Superior Temporal Sulcus — dorsal posterior",
+    "STSda": "Superior Temporal Sulcus — dorsal anterior",
+    "STSvp": "Superior Temporal Sulcus — ventral posterior",
+    "STSva": "Superior Temporal Sulcus — ventral anterior",
+    "TE1a": "Temporal Area TE1a (auditory association)",
+    "TE1m": "Temporal Area TE1m (auditory association)",
+    "TE1p": "Temporal Area TE1p (auditory association)",
+    "FEF": "Frontal Eye Field (top-down visual attention)",
+    "IPS1": "Intraparietal Sulcus Area 1",
+    "VIP": "Ventral Intraparietal Area",
+    "LIPv": "Lateral Intraparietal Area — ventral",
+    "LIPd": "Lateral Intraparietal Area — dorsal",
+    "7PC": "Parietal Area 7PC (attention)",
+    "TPOJ1": "Temporo-Parieto-Occipital Junction 1",
+    "TPOJ2": "Temporo-Parieto-Occipital Junction 2",
+    "TPOJ3": "Temporo-Parieto-Occipital Junction 3",
+    "PH": "Parieto-occipital Area PH",
+    "PGp": "Parietal Area PGp",
+    "IP1": "Intraparietal Area 1",
+    "IP2": "Intraparietal Area 2",
+}
+
 load_dotenv()
 
 st.set_page_config(
@@ -301,11 +341,11 @@ def results_panel(label: str, result: dict, color: str):
             st.caption("Brain map not available.")
 
     with stats_tab:
-        # Average metrics
+        # Average metrics — values scaled ×1000 (milli-BOLD) to fit metric boxes
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Brain Score", f"{stats['overall_score']:.5f}")
+        c1.metric("Brain Score", f"{stats['overall_score'] * 1000:.2f}", help="Mean predicted BOLD activation ×10⁻³")
         early = stats.get("early_attention_score")
-        c2.metric("Early Attention", f"{early:.5f}" if early is not None else "—", help="Log-weighted score — first seconds count more")
+        c2.metric("Early Attn", f"{early * 1000:.2f}" if early is not None else "—", help="Log-weighted score — first seconds count more (×10⁻³ BOLD)")
         c3.metric("Peak Moment", f"{stats['peak_timestamp_s']:.0f}s")
         c4.metric("Duration", f"{len(stats['engagement_over_time'])} TRs")
 
@@ -321,11 +361,14 @@ def results_panel(label: str, result: dict, color: str):
         st.markdown(f"**Now · {ts_label}**")
         lc1, lc2 = st.columns(2)
         lc1.metric(
-            "Segment activation",
-            f"{current_val:.5f}",
-            delta=f"{current_val - mean_act:+.5f} vs mean",
+            "Now (×10⁻³)",
+            f"{current_val * 1000:.2f}",
+            delta=f"{(current_val - mean_act) * 1000:+.2f} vs mean",
         )
-        lc2.metric("Active regions", " · ".join(top_rois_now) if top_rois_now else "—")
+        roi_help = "\n".join(
+            f"{r}: {HCP_ROI_NAMES.get(r, 'HCP cortical area')}" for r in top_rois_now
+        ) if top_rois_now else None
+        lc2.metric("Active regions", " · ".join(top_rois_now) if top_rois_now else "—", help=roi_help)
 
         st.markdown("**Engagement over time**")
         st.plotly_chart(
@@ -338,9 +381,9 @@ def results_panel(label: str, result: dict, color: str):
 
         with st.expander("Cognitive breakdown"):
             ca, cb, cc = st.columns(3)
-            ca.metric("Visual cortex", f"{stats['visual_score']:.5f}", help="V1 · V2 · V3 · MT")
-            cb.metric("Language cortex", f"{stats['language_score']:.5f}", help="Broca · Wernicke")
-            cc.metric("Attention network", f"{stats['attention_score']:.5f}", help="FEF · IPS · VIP")
+            ca.metric("Visual cortex", f"{stats['visual_score'] * 1000:.2f}", help="V1 · V2 · V3 · V4 · MT · MST · V3A · V3B\nHow strongly the visual creative is being processed — motion, colour, objects")
+            cb.metric("Language cortex", f"{stats['language_score'] * 1000:.2f}", help="Broca (BA44/45) · Superior Temporal Sulcus (STS) · TE1a · TE1m\nHow much spoken or written language is being processed")
+            cc.metric("Attention network", f"{stats['attention_score'] * 1000:.2f}", help="FEF · IPS1 · VIP · LIPv · LIPd · 7PC\nHow strongly top-down attention and gaze control are engaged")
 
 
 # -----------------------------------------------------------------------
