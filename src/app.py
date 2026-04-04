@@ -218,6 +218,7 @@ def run_and_cache(label: str, video_path: str, video_hash: str, model) -> dict |
     # Layer 1: session state
     if cache_key in st.session_state:
         if st.session_state[cache_key].get("video_hash") == video_hash:
+            _backfill_scores(st.session_state[cache_key]["stats"])
             return st.session_state[cache_key]
 
     # Layer 2: disk cache
