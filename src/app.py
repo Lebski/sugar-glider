@@ -19,6 +19,7 @@ import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 import brain
+import history
 import library
 import result_cache
 
@@ -113,6 +114,15 @@ st.markdown(
     [data-testid="stSidebar"] hr { border-color: #e5e7eb; }
 
     div[data-testid="stMetric"] { background: #f9fafb; border-radius: 8px; padding: 0.75rem 1rem; }
+
+    /* History card styling */
+    .hist-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 0.75rem;
+        margin-bottom: 0.5rem;
+        background: #ffffff;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -206,6 +216,15 @@ def _backfill_scores(stats: dict) -> None:
             stats["early_attention_score"] = float(eng[0]) if N == 1 else 0.0
 
 
+def _register_history(video_hash: str, video_path: str, stats: dict) -> None:
+    """Add/update this video in the persistent history index (once per session)."""
+    sess_key = f"hist_registered_{video_hash}"
+    if sess_key not in st.session_state:
+        name = Path(video_path).stem
+        history.add_or_update(video_hash, name, video_path, stats)
+        st.session_state[sess_key] = True
+
+
 def run_and_cache(label: str, video_path: str, video_hash: str, model) -> dict | None:
     """
     Three-layer cache:
@@ -219,6 +238,7 @@ def run_and_cache(label: str, video_path: str, video_hash: str, model) -> dict |
     if cache_key in st.session_state:
         if st.session_state[cache_key].get("video_hash") == video_hash:
             _backfill_scores(st.session_state[cache_key]["stats"])
+            _register_history(video_hash, video_path, st.session_state[cache_key]["stats"])
             return st.session_state[cache_key]
 
     # Layer 2: disk cache
@@ -227,6 +247,7 @@ def run_and_cache(label: str, video_path: str, video_hash: str, model) -> dict |
         cached["video_path"] = video_path
         cached["video_hash"] = video_hash
         _backfill_scores(cached["stats"])
+        _register_history(video_hash, video_path, cached["stats"])
         st.session_state[cache_key] = cached
         return cached
 
@@ -256,6 +277,7 @@ def run_and_cache(label: str, video_path: str, video_hash: str, model) -> dict |
         "brain_png": str(result_cache._dir(video_hash) / "brain.png"),
     }
     st.session_state[cache_key] = result
+    _register_history(video_hash, video_path, stats)
     return result
 
 
@@ -399,8 +421,6 @@ def results_panel(label: str, result: dict, color: str):
             st.metric("Attention network (×10⁻³)", f"{stats['attention_score'] * 1000:.2f}", help="FEF · IPS1 · VIP · LIPv · LIPd · 7PC\nHow strongly top-down attention and gaze control are engaged")
 
 
-
-
 # -----------------------------------------------------------------------
 # Region legend
 # -----------------------------------------------------------------------
@@ -482,12 +502,163 @@ def comparison_section(result_a: dict, result_b: dict):
 
 
 # -----------------------------------------------------------------------
-# Sidebar
+# History
+# -----------------------------------------------------------------------
+
+def _hist_name_cb(video_hash: str, key: str) -> None:
+    history.update_meta(video_hash, name=st.session_state[key])
+
+
+def _hist_desc_cb(video_hash: str, key: str) -> None:
+    history.update_meta(video_hash, description=st.session_state[key])
+
+
+def _history_card(entry: dict, col_idx: int) -> None:
+    """Render a single history card."""
+    h = entry["hash"]
+    sel_a = st.session_state.get("history_sel_a", {})
+    sel_b = st.session_state.get("history_sel_b", {})
+    is_a = sel_a.get("hash") == h
+    is_b = sel_b.get("hash") == h
+
+    # Thumbnail
+    thumb = history.thumbnail_path(h)
+    if thumb.exists():
+        st.image(str(thumb), use_container_width=True)
+    else:
+        st.markdown("*(no preview)*")
+
+    # Selection badges
+    badges = []
+    if is_a:
+        badges.append("🔵 **Selected as A**")
+    if is_b:
+        badges.append("🔴 **Selected as B**")
+    if badges:
+        st.markdown(" · ".join(badges))
+
+    # Editable name
+    name_key = f"hist_name_{h}"
+    st.text_input(
+        "Name",
+        value=entry["name"],
+        key=name_key,
+        on_change=_hist_name_cb,
+        args=(h, name_key),
+        label_visibility="collapsed",
+    )
+
+    # Editable description
+    desc_key = f"hist_desc_{h}"
+    st.text_area(
+        "Description",
+        value=entry.get("description", ""),
+        key=desc_key,
+        on_change=_hist_desc_cb,
+        args=(h, desc_key),
+        height=68,
+        placeholder="Add a note...",
+        label_visibility="collapsed",
+    )
+
+    # Key metrics
+    duration_s = entry["duration_trs"] * 2
+    ts = entry.get("timestamp", "")[:10]  # YYYY-MM-DD
+    st.caption(
+        f"Brain **{entry['brain_score'] * 1000:.2f}** · "
+        f"Impact **{entry['impact_score'] * 1000:.2f}** · "
+        f"Early **{entry['early_attention_score'] * 1000:.2f}** · "
+        f"{duration_s}s · {ts}"
+    )
+
+    # Video availability warning
+    video_ok = Path(entry["video_path"]).exists()
+    if not video_ok:
+        st.caption("⚠ Video file unavailable (stats still usable)")
+
+    # Select buttons
+    b1, b2 = st.columns(2)
+    if b1.button(
+        "🔵 Set as A" if not is_a else "✓ A",
+        key=f"seta_{h}_{col_idx}",
+        use_container_width=True,
+        type="primary" if is_a else "secondary",
+    ):
+        st.session_state["history_sel_a"] = entry
+        st.session_state.app_mode = "compare"
+        st.rerun()
+
+    if b2.button(
+        "🔴 Set as B" if not is_b else "✓ B",
+        key=f"setb_{h}_{col_idx}",
+        use_container_width=True,
+        type="primary" if is_b else "secondary",
+    ):
+        st.session_state["history_sel_b"] = entry
+        st.session_state.app_mode = "compare"
+        st.rerun()
+
+
+def history_view() -> None:
+    index = history.load_index()
+
+    st.subheader("History")
+    if not index:
+        st.info("No ads analyzed yet. Go to **Compare** to analyze your first ad.", icon="📋")
+        return
+
+    st.caption(f"{len(index)} ad{'s' if len(index) != 1 else ''} analyzed · select two to compare")
+
+    sel_a = st.session_state.get("history_sel_a")
+    sel_b = st.session_state.get("history_sel_b")
+    both_selected = sel_a and sel_b
+
+    if both_selected:
+        ca, cb, cgo = st.columns([3, 3, 2])
+        ca.markdown(f"**A:** {sel_a['name']}")
+        cb.markdown(f"**B:** {sel_b['name']}")
+        if cgo.button("Compare →", type="primary", use_container_width=True):
+            st.session_state.app_mode = "compare"
+            st.rerun()
+
+    st.markdown("---")
+
+    cols_per_row = 3
+    for i in range(0, len(index), cols_per_row):
+        cols = st.columns(cols_per_row)
+        for j, col in enumerate(cols):
+            idx = i + j
+            if idx >= len(index):
+                break
+            with col:
+                _history_card(index[idx], col_idx=idx)
+
+
+# -----------------------------------------------------------------------
+# Sidebar — ad selector (supports history pre-selection)
 # -----------------------------------------------------------------------
 
 def ad_selector(slot: str) -> tuple[str, str] | tuple[None, None]:
     """Returns (video_path, video_hash) or (None, None)."""
+    hist_key = f"history_sel_{slot}"
+    hist_entry = st.session_state.get(hist_key)
+
     st.sidebar.markdown(f"**Ad {slot.upper()}**")
+
+    if hist_entry:
+        thumb = history.thumbnail_path(hist_entry["hash"])
+        if thumb.exists():
+            st.sidebar.image(str(thumb), width=72)
+        st.sidebar.markdown(f"📋 {hist_entry['name']}")
+        if st.sidebar.button("Clear", key=f"clear_hist_{slot}", use_container_width=True):
+            del st.session_state[hist_key]
+            st.rerun()
+        video_path = hist_entry["video_path"]
+        if not Path(video_path).exists():
+            st.sidebar.error("Video file not found.")
+            return None, None
+        return video_path, hist_entry["hash"]
+
     mode = st.sidebar.radio(
         "Source", ["Library", "Upload"],
         key=f"mode_{slot}", horizontal=True, label_visibility="collapsed",
@@ -511,8 +682,11 @@ def ad_selector(slot: str) -> tuple[str, str] | tuple[None, None]:
 
 
 # -----------------------------------------------------------------------
-# Layout
+# App-level navigation
 # -----------------------------------------------------------------------
+
+if "app_mode" not in st.session_state:
+    st.session_state.app_mode = "compare"
 
 st.title("Ad Brain Analyzer")
 st.caption(
@@ -520,53 +694,81 @@ st.caption(
     "[TRIBE v2](https://github.com/facebookresearch/tribev2) — Meta's fMRI foundation model."
 )
 
-st.sidebar.title("Select Ads")
-path_a, hash_a = ad_selector("a")
-st.sidebar.markdown("---")
-path_b, hash_b = ad_selector("b")
-st.sidebar.markdown("---")
-compare_clicked = st.sidebar.button(
-    "Compare",
-    type="primary",
+# Navigation
+nav_c1, nav_c2 = st.sidebar.columns(2)
+if nav_c1.button(
+    "🔬 Compare",
     use_container_width=True,
-    disabled=(not path_a or not path_b),
-)
+    type="primary" if st.session_state.app_mode == "compare" else "secondary",
+):
+    st.session_state.app_mode = "compare"
+    st.rerun()
+if nav_c2.button(
+    "📋 History",
+    use_container_width=True,
+    type="primary" if st.session_state.app_mode == "history" else "secondary",
+):
+    st.session_state.app_mode = "history"
+    st.rerun()
+
+st.sidebar.markdown("---")
 
 # -----------------------------------------------------------------------
-# Results
+# History view
 # -----------------------------------------------------------------------
 
-if compare_clicked and path_a and path_b:
-    with st.spinner("Loading TRIBE v2 model..."):
-        model = get_model()
+if st.session_state.app_mode == "history":
+    history_view()
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.subheader("Ad A")
-        result_a = run_and_cache("a", path_a, hash_a, model)
-    with col_b:
-        st.subheader("Ad B")
-        result_b = run_and_cache("b", path_b, hash_b, model)
+# -----------------------------------------------------------------------
+# Compare view
+# -----------------------------------------------------------------------
 
-    if result_a and result_b:
+else:
+    st.sidebar.title("Select Ads")
+    path_a, hash_a = ad_selector("a")
+    st.sidebar.markdown("---")
+    path_b, hash_b = ad_selector("b")
+    st.sidebar.markdown("---")
+    compare_clicked = st.sidebar.button(
+        "Compare",
+        type="primary",
+        use_container_width=True,
+        disabled=(not path_a or not path_b),
+    )
+
+    if compare_clicked and path_a and path_b:
+        with st.spinner("Loading TRIBE v2 model..."):
+            model = get_model()
+
+        col_a, col_b = st.columns(2)
         with col_a:
+            st.subheader("Ad A")
+            result_a = run_and_cache("a", path_a, hash_a, model)
+        with col_b:
+            st.subheader("Ad B")
+            result_b = run_and_cache("b", path_b, hash_b, model)
+
+        if result_a and result_b:
+            with col_a:
+                results_panel("a", result_a, color="rgb(59, 130, 246)")
+            with col_b:
+                results_panel("b", result_b, color="rgb(239, 68, 68)")
+            comparison_section(result_a, result_b)
+            region_legend()
+
+    elif "result_a" in st.session_state and "result_b" in st.session_state:
+        result_a = st.session_state["result_a"]
+        result_b = st.session_state["result_b"]
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.subheader("Ad A")
             results_panel("a", result_a, color="rgb(59, 130, 246)")
         with col_b:
+            st.subheader("Ad B")
             results_panel("b", result_b, color="rgb(239, 68, 68)")
         comparison_section(result_a, result_b)
         region_legend()
 
-elif "result_a" in st.session_state and "result_b" in st.session_state:
-    result_a = st.session_state["result_a"]
-    result_b = st.session_state["result_b"]
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.subheader("Ad A")
-        results_panel("a", result_a, color="rgb(59, 130, 246)")
-    with col_b:
-        st.subheader("Ad B")
-        results_panel("b", result_b, color="rgb(239, 68, 68)")
-    comparison_section(result_a, result_b)
-
-else:
-    st.info("Select two ads in the sidebar and click **Compare** to see brain responses.", icon="👈")
+    else:
+        st.info("Select two ads in the sidebar and click **Compare** to see brain responses.", icon="👈")
