@@ -295,7 +295,7 @@ def _build_unified_library() -> list[dict]:
 # Charts
 # -----------------------------------------------------------------------
 
-def engagement_chart(stats: dict, color: str, cursor_idx: int | None = None) -> go.Figure:
+def engagement_chart(stats: dict, color: str, cursor_idx: int | None = None, yrange: tuple | None = None) -> go.Figure:
     times = stats["segment_timestamps"]
     values = stats["engagement_over_time"].tolist()
     peak_idx = stats["peak_segment_idx"]
@@ -332,7 +332,10 @@ def engagement_chart(stats: dict, color: str, cursor_idx: int | None = None) -> 
         font=dict(size=11),
     )
     fig.update_xaxes(showgrid=True, gridcolor="#f0f0f0", zeroline=False)
-    fig.update_yaxes(showgrid=True, gridcolor="#f0f0f0", zeroline=False)
+    yaxis_kwargs = dict(showgrid=True, gridcolor="#f0f0f0", zeroline=False)
+    if yrange is not None:
+        yaxis_kwargs["range"] = list(yrange)
+    fig.update_yaxes(**yaxis_kwargs)
     return fig
 
 
@@ -377,7 +380,7 @@ def delta_roi_chart(delta_stats: dict) -> go.Figure:
 # Results panel
 # -----------------------------------------------------------------------
 
-def results_panel(label: str, result: dict, color: str):
+def results_panel(label: str, result: dict, color: str, yrange: tuple | None = None):
     stats = result["stats"]
     seg_idx = 0
 
@@ -417,7 +420,7 @@ def results_panel(label: str, result: dict, color: str):
 
         st.markdown("**Engagement over time**")
         st.plotly_chart(
-            engagement_chart(stats, color, cursor_idx=seg_idx),
+            engagement_chart(stats, color, cursor_idx=seg_idx, yrange=yrange),
             use_container_width=True, key=f"eng_{label}",
         )
 
@@ -750,13 +753,22 @@ def _compare_results_view(result_a: dict, result_b: dict) -> None:
         st.session_state.cmp_show_results = False
         st.rerun()
 
+    # Shared Y range so both engagement charts are directly comparable
+    all_vals = (
+        list(result_a["stats"]["engagement_over_time"])
+        + list(result_b["stats"]["engagement_over_time"])
+    )
+    _ymin, _ymax = min(all_vals), max(all_vals)
+    _margin = max((_ymax - _ymin) * 0.12, abs(_ymax) * 0.05, 1e-6)
+    shared_yrange = (_ymin - _margin, _ymax + _margin)
+
     col_a, col_b = st.columns(2)
     with col_a:
         st.subheader(f"A — {name_a}")
-        results_panel("a", result_a, color="rgb(59, 130, 246)")
+        results_panel("a", result_a, color="rgb(59, 130, 246)", yrange=shared_yrange)
     with col_b:
         st.subheader(f"B — {name_b}")
-        results_panel("b", result_b, color="rgb(239, 68, 68)")
+        results_panel("b", result_b, color="rgb(239, 68, 68)", yrange=shared_yrange)
 
     comparison_section(result_a, result_b)
     region_legend()
