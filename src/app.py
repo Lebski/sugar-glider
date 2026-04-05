@@ -8,18 +8,13 @@ Two tabs:
 Run with: uv run streamlit run src/app.py
 """
 
-import functools
 import hashlib
-import http.server
 import os
-import socket
-import threading
 from pathlib import Path
 
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
-import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 import brain
@@ -101,74 +96,9 @@ st.markdown(
 )
 
 # -----------------------------------------------------------------------
-# File server (serves project root so the video component iframe can load videos)
-# -----------------------------------------------------------------------
-
-FILE_SERVER_PORT = 8765
-
-
-class _VideoServer(http.server.HTTPServer):
-    """HTTPServer with SO_REUSEADDR so it can rebind quickly after a hot-reload."""
-    allow_reuse_address = True
-
-
-class _VideoHandler(http.server.SimpleHTTPRequestHandler):
-    """Serves project files with CORS headers so the component iframe can load videos."""
-
-    def end_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-        self.send_header("Cache-Control", "no-cache")
-        super().end_headers()
-
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.end_headers()
-
-    def log_message(self, *args):
-        pass  # suppress per-request noise in the Streamlit console
-
-
-@st.cache_resource(show_spinner=False)
-def start_file_server() -> int:
-    handler = functools.partial(
-        _VideoHandler,
-        directory=str(Path(".").resolve()),
-    )
-    try:
-        server = _VideoServer(("127.0.0.1", FILE_SERVER_PORT), handler)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-    except OSError:
-        pass  # already running from a previous cache hit
-    return FILE_SERVER_PORT
-
-
-_video_player_component = components.declare_component(
-    "video_player",
-    path=str(Path(__file__).parent / "components" / "video_player"),
-)
-
-
-def video_player(video_path: str, segment_timestamps: list) -> int:
-    """Renders a synced video player. Returns the current segment index."""
-    port = start_file_server()
-    try:
-        rel = Path(video_path).resolve().relative_to(Path(".").resolve())
-        url = f"http://localhost:{port}/{rel.as_posix()}"
-    except ValueError:
-        st.video(video_path)
-        return 0
-    seg = _video_player_component(
-        video_url=url, segment_timestamps=segment_timestamps,
-        height=300,  # initialises iframe at 300px; Streamlit ignores setFrameHeight before componentReady
-        default=0,
-    )
-    return seg if seg is not None else 0
-
-
-# -----------------------------------------------------------------------
 # Model
 # -----------------------------------------------------------------------
+
 
 @st.cache_resource(show_spinner=False)
 def get_model():
@@ -204,13 +134,16 @@ def _backfill_scores(stats: dict) -> None:
     if preds_mean is None:
         return
     if stats.get("impact_score") is None:
-        stats["impact_score"] = brain._safe_roi_mean(preds_mean, brain.IMPACT_ROIS)
+        stats["impact_score"] = brain._safe_roi_mean(
+            preds_mean, brain.IMPACT_ROIS)
     if stats.get("early_attention_score") is None:
         eng = stats["engagement_over_time"]
         N = len(eng)
         if N > 1:
-            weights = np.array([np.log(N + 1) - np.log(i + 1) for i in range(N)])
-            stats["early_attention_score"] = float(np.dot(weights, eng) / weights.sum())
+            weights = np.array([np.log(N + 1) - np.log(i + 1)
+                               for i in range(N)])
+            stats["early_attention_score"] = float(
+                np.dot(weights, eng) / weights.sum())
         else:
             stats["early_attention_score"] = float(eng[0]) if N == 1 else 0.0
 
@@ -325,7 +258,8 @@ _REWARD_ONLY_ROIS = [
     "10v", "p24", "a24", "d32",        # vmPFC + pregenual ACC
     "Ig", "PoI1", "AVI", "AAIC",       # Insula
 ]
-_SOCIAL_ROIS = ["TGd", "TGv", "TPOJ1", "TPOJ2"]   # Temporal pole + TPO junction
+# Temporal pole + TPO junction
+_SOCIAL_ROIS = ["TGd", "TGv", "TPOJ1", "TPOJ2"]
 
 
 def _radar_scores(stats: dict) -> dict[str, float]:
@@ -397,7 +331,8 @@ def radar_chart(
             bgcolor="white",
         ),
         showlegend=bool(scores_b),
-        legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
+        legend=dict(orientation="h", yanchor="bottom",
+                    y=-0.15, xanchor="center", x=0.5),
         height=320,
         margin=dict(t=20, b=20, l=60, r=60),
         paper_bgcolor="white",
@@ -497,10 +432,21 @@ def delta_roi_chart(delta_stats: dict) -> go.Figure:
 
 def results_panel(label: str, result: dict, color: str, yrange: tuple | None = None):
     stats = result["stats"]
-    seg_idx = 0
 
     if result.get("video_path") and Path(result["video_path"]).exists():
-        seg_idx = video_player(result["video_path"], stats["segment_timestamps"])
+        st.video(result["video_path"])
+
+    seg_ts = stats["segment_timestamps"]
+    n_segs = len(seg_ts)
+    if n_segs > 1:
+        seg_idx = st.select_slider(
+            "Segment",
+            options=list(range(n_segs)),
+            format_func=lambda i: f"{seg_ts[i]:.0f}s",
+            key=f"seg_{label}",
+        )
+    else:
+        seg_idx = 0
 
     brain_tab, stats_tab = st.tabs(["Brain Map", "Statistics"])
 
@@ -511,27 +457,33 @@ def results_panel(label: str, result: dict, color: str, yrange: tuple | None = N
             st.caption("Brain map not available.")
 
     with stats_tab:
-        seg_ts = stats["segment_timestamps"]
         seg_act = stats["engagement_over_time"]
         mean_act = float(seg_act.mean())
-        current_val = float(seg_act[seg_idx]) if seg_idx < len(seg_act) else mean_act
+        current_val = float(seg_act[seg_idx]) if seg_idx < len(
+            seg_act) else mean_act
         per_seg_rois = stats.get("per_segment_top_rois", [])
-        top_rois_now = per_seg_rois[seg_idx] if seg_idx < len(per_seg_rois) else []
+        top_rois_now = per_seg_rois[seg_idx] if seg_idx < len(
+            per_seg_rois) else []
         ts_label = f"{seg_ts[seg_idx]:.0f}s" if seg_idx < len(seg_ts) else "0s"
         early = stats.get("early_attention_score")
         roi_help = "\n".join(
             f"{r}: {HCP_ROI_NAMES.get(r, 'HCP cortical area')}" for r in top_rois_now
         ) if top_rois_now else None
 
-        st.metric("Brain Score (×10⁻³)", f"{stats['overall_score'] * 1000:.2f}", help="Mean predicted BOLD activation across all vertices and segments")
+        st.metric("Brain Score (×10⁻³)", f"{stats['overall_score'] * 1000:.2f}",
+                  help="Mean predicted BOLD activation across all vertices and segments")
         impact = stats.get("impact_score")
-        st.metric("Ad Impact Score (×10⁻³)", f"{impact * 1000:.2f}" if impact is not None else "—", help="Attention network + cortical reward-adjacent regions (OFC, vmPFC, ACC, Insula, Temporal pole)")
-        st.metric("Early Attention (×10⁻³)", f"{early * 1000:.2f}" if early is not None else "—", help="Log-weighted score — first seconds count more")
+        st.metric("Ad Impact Score (×10⁻³)", f"{impact * 1000:.2f}" if impact is not None else "—",
+                  help="Attention network + cortical reward-adjacent regions (OFC, vmPFC, ACC, Insula, Temporal pole)")
+        st.metric("Early Attention (×10⁻³)", f"{early * 1000:.2f}" if early is not None else "—",
+                  help="Log-weighted score — first seconds count more")
         st.metric("Peak Moment", f"{stats['peak_timestamp_s']:.0f}s")
         st.metric("Duration", f"{len(seg_act)} TRs")
         st.divider()
-        st.metric(f"Now · {ts_label} (×10⁻³)", f"{current_val * 1000:.2f}", delta=f"{(current_val - mean_act) * 1000:+.2f} vs mean")
-        st.metric("Active regions", " · ".join(top_rois_now) if top_rois_now else "—", help=roi_help)
+        st.metric(f"Now · {ts_label} (×10⁻³)", f"{current_val * 1000:.2f}",
+                  delta=f"{(current_val - mean_act) * 1000:+.2f} vs mean")
+        st.metric("Active regions", " · ".join(top_rois_now)
+                  if top_rois_now else "—", help=roi_help)
 
         st.markdown("**Engagement over time**")
         st.plotly_chart(
@@ -540,7 +492,8 @@ def results_panel(label: str, result: dict, color: str, yrange: tuple | None = N
         )
 
         st.markdown("**Top activated regions**")
-        st.plotly_chart(roi_bar_chart(stats, color), use_container_width=True, key=f"roi_{label}")
+        st.plotly_chart(roi_bar_chart(stats, color),
+                        use_container_width=True, key=f"roi_{label}")
 
         with st.expander("Cognitive profile"):
             radar_scores = _radar_scores(stats)
@@ -549,9 +502,12 @@ def results_panel(label: str, result: dict, color: str, yrange: tuple | None = N
                     radar_chart(radar_scores, color, label),
                     use_container_width=True, key=f"radar_{label}",
                 )
-            st.metric("Visual cortex (×10⁻³)", f"{stats['visual_score'] * 1000:.2f}", help="V1 · V2 · V3 · V4 · MT · MST · V3A · V3B")
-            st.metric("Language cortex (×10⁻³)", f"{stats['language_score'] * 1000:.2f}", help="Broca (BA44/45) · STS · TE1a · TE1m")
-            st.metric("Attention network (×10⁻³)", f"{stats['attention_score'] * 1000:.2f}", help="FEF · IPS1 · VIP · LIPv · LIPd · 7PC")
+            st.metric("Visual cortex (×10⁻³)",
+                      f"{stats['visual_score'] * 1000:.2f}", help="V1 · V2 · V3 · V4 · MT · MST · V3A · V3B")
+            st.metric("Language cortex (×10⁻³)",
+                      f"{stats['language_score'] * 1000:.2f}", help="Broca (BA44/45) · STS · TE1a · TE1m")
+            st.metric("Attention network (×10⁻³)",
+                      f"{stats['attention_score'] * 1000:.2f}", help="FEF · IPS1 · VIP · LIPv · LIPd · 7PC")
 
 
 # -----------------------------------------------------------------------
@@ -617,9 +573,11 @@ def comparison_section(result_a: dict, result_b: dict):
     if winner == "tie":
         st.info("Both ads produce nearly identical brain responses.")
     elif winner == "B":
-        st.success(f"**Ad B wins** — {abs(delta):.5f} higher mean neural activation than Ad A.")
+        st.success(
+            f"**Ad B wins** — {abs(delta):.5f} higher mean neural activation than Ad A.")
     else:
-        st.success(f"**Ad A wins** — {abs(delta):.5f} higher mean neural activation than Ad B.")
+        st.success(
+            f"**Ad A wins** — {abs(delta):.5f} higher mean neural activation than Ad B.")
 
     # Combined radar — cognitive profile overlay
     radar_a = _radar_scores(stats_a)
@@ -640,7 +598,8 @@ def comparison_section(result_a: dict, result_b: dict):
 
     with col_chart:
         st.markdown("**Where they differ most**")
-        st.plotly_chart(delta_roi_chart(delta_stats), use_container_width=True, key="delta_chart")
+        st.plotly_chart(delta_roi_chart(delta_stats),
+                        use_container_width=True, key="delta_chart")
 
     with col_map:
         st.markdown("**Brain difference map (B − A)**")
@@ -649,7 +608,8 @@ def comparison_section(result_a: dict, result_b: dict):
         delta_png = f"outputs/renders/{ha}_{hb}_delta.png"
         if not Path(delta_png).exists():
             with st.spinner("Rendering difference map…"):
-                brain.render_delta_brain_png(stats_a["preds_mean"], stats_b["preds_mean"], delta_png)
+                brain.render_delta_brain_png(
+                    stats_a["preds_mean"], stats_b["preds_mean"], delta_png)
         if Path(delta_png).exists():
             st.image(delta_png, use_container_width=True)
             st.caption("Red = Ad B more active · Blue = Ad A more active")
@@ -689,7 +649,8 @@ def library_tab_view() -> None:
                 if video_path and video_hash:
                     if result_cache.exists(video_hash):
                         result = load_result(video_hash, video_path)
-                        _register_history(video_hash, video_path, result["stats"])
+                        _register_history(
+                            video_hash, video_path, result["stats"])
                     else:
                         needs_analysis.append((video_path, video_hash))
 
@@ -700,16 +661,19 @@ def library_tab_view() -> None:
                     analyze_video(video_path, video_hash, model)
                 st.rerun()
             elif len(new_files) == 1:
-                st.success(f"**{Path(new_files[0].name).stem}** is already in the library.", icon="✓")
+                st.success(
+                    f"**{Path(new_files[0].name).stem}** is already in the library.", icon="✅")
             else:
                 already = len(new_files) - len(needs_analysis)
-                st.success(f"{already} video{'s' if already != 1 else ''} already in library.", icon="✓")
+                st.success(
+                    f"{already} video{'s' if already != 1 else ''} already in library.", icon="✅")
 
     st.divider()
 
     items = _build_unified_library()
     if not items:
-        st.info("No videos yet. Upload .mp4 files above or add them to **ads/**.", icon="📂")
+        st.info(
+            "No videos yet. Upload .mp4 files above or add them to **ads/**.", icon="📂")
         return
 
     # Sort controls
@@ -723,9 +687,11 @@ def library_tab_view() -> None:
     count_col.caption(f"{len(items)} video{'s' if len(items) != 1 else ''}")
 
     if sort_by == "Brain Score ↓":
-        items.sort(key=lambda x: -(x["history_entry"] or {}).get("brain_score", -1))
+        items.sort(key=lambda x: -
+                   (x["history_entry"] or {}).get("brain_score", -1))
     elif sort_by == "Impact Score ↓":
-        items.sort(key=lambda x: -(x["history_entry"] or {}).get("impact_score", -1))
+        items.sort(key=lambda x: -
+                   (x["history_entry"] or {}).get("impact_score", -1))
     elif sort_by == "Name":
         items.sort(key=lambda x: x["name"].lower())
     # "Date added" keeps the default order from _build_unified_library()
@@ -877,7 +843,8 @@ def _compare_select_card(entry: dict, idx: int) -> None:
     if thumb.exists():
         st.image(str(thumb), use_container_width=True)
     else:
-        st.markdown('<div class="unanalyzed-thumb">🧠</div>', unsafe_allow_html=True)
+        st.markdown('<div class="unanalyzed-thumb">🧠</div>',
+                    unsafe_allow_html=True)
 
     badges = []
     if is_a:
@@ -895,7 +862,7 @@ def _compare_select_card(entry: dict, idx: int) -> None:
 
     b1, b2 = st.columns(2)
     if b1.button(
-        "✓ A" if is_a else "Set A",
+        "A" if is_a else "Set A",
         key=f"cmp_seta_{idx}",
         use_container_width=True,
         type="primary" if is_a else "secondary",
@@ -904,7 +871,7 @@ def _compare_select_card(entry: dict, idx: int) -> None:
         st.session_state.cmp_show_results = False
         st.rerun()
     if b2.button(
-        "✓ B" if is_b else "Set B",
+        "B" if is_b else "Set B",
         key=f"cmp_setb_{idx}",
         use_container_width=True,
         type="primary" if is_b else "secondary",
@@ -936,10 +903,12 @@ def _compare_results_view(result_a: dict, result_b: dict) -> None:
     col_a, col_b = st.columns(2)
     with col_a:
         st.subheader(f"A — {name_a}")
-        results_panel("a", result_a, color="rgb(59, 130, 246)", yrange=shared_yrange)
+        results_panel("a", result_a, color="rgb(59, 130, 246)",
+                      yrange=shared_yrange)
     with col_b:
         st.subheader(f"B — {name_b}")
-        results_panel("b", result_b, color="rgb(239, 68, 68)", yrange=shared_yrange)
+        results_panel("b", result_b, color="rgb(239, 68, 68)",
+                      yrange=shared_yrange)
 
     comparison_section(result_a, result_b)
     region_legend()
