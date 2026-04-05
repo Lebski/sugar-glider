@@ -672,34 +672,63 @@ def _lib_desc_cb(video_hash: str, key: str) -> None:
 # -----------------------------------------------------------------------
 
 def library_tab_view() -> None:
-    # Upload widget — auto-analyzes on drop
-    uploaded = st.file_uploader(
-        "Upload a new ad (.mp4)",
+    # Bulk upload widget
+    uploaded_files = st.file_uploader(
+        "Upload ads (.mp4) — select multiple",
         type=["mp4"],
+        accept_multiple_files=True,
         key="lib_uploader",
         label_visibility="collapsed",
     )
-    if uploaded is not None:
-        video_path, video_hash = save_upload(uploaded)
-        if video_path and video_hash:
-            if result_cache.exists(video_hash):
-                result = load_result(video_hash, video_path)
-                _register_history(video_hash, video_path, result["stats"])
-                st.success(f"**{Path(video_path).stem}** is already in the library.", icon="✓")
-            else:
+    if uploaded_files:
+        new_files = [f for f in uploaded_files if f is not None]
+        if new_files:
+            needs_analysis = []
+            for uf in new_files:
+                video_path, video_hash = save_upload(uf)
+                if video_path and video_hash:
+                    if result_cache.exists(video_hash):
+                        result = load_result(video_hash, video_path)
+                        _register_history(video_hash, video_path, result["stats"])
+                    else:
+                        needs_analysis.append((video_path, video_hash))
+
+            if needs_analysis:
                 with st.spinner("Loading model…"):
                     model = get_model()
-                analyze_video(video_path, video_hash, model)
+                for video_path, video_hash in needs_analysis:
+                    analyze_video(video_path, video_hash, model)
                 st.rerun()
+            elif len(new_files) == 1:
+                st.success(f"**{Path(new_files[0].name).stem}** is already in the library.", icon="✓")
+            else:
+                already = len(new_files) - len(needs_analysis)
+                st.success(f"{already} video{'s' if already != 1 else ''} already in library.", icon="✓")
 
     st.divider()
 
     items = _build_unified_library()
     if not items:
-        st.info("No videos yet. Upload an .mp4 above or add files to **ads/**.", icon="📂")
+        st.info("No videos yet. Upload .mp4 files above or add them to **ads/**.", icon="📂")
         return
 
-    st.caption(f"{len(items)} video{'s' if len(items) != 1 else ''} · drag & drop to upload more")
+    # Sort controls
+    sort_col, _, count_col = st.columns([2, 3, 2])
+    sort_by = sort_col.selectbox(
+        "Sort by",
+        ["Date added", "Brain Score ↓", "Impact Score ↓", "Name"],
+        key="lib_sort",
+        label_visibility="collapsed",
+    )
+    count_col.caption(f"{len(items)} video{'s' if len(items) != 1 else ''}")
+
+    if sort_by == "Brain Score ↓":
+        items.sort(key=lambda x: -(x["history_entry"] or {}).get("brain_score", -1))
+    elif sort_by == "Impact Score ↓":
+        items.sort(key=lambda x: -(x["history_entry"] or {}).get("impact_score", -1))
+    elif sort_by == "Name":
+        items.sort(key=lambda x: x["name"].lower())
+    # "Date added" keeps the default order from _build_unified_library()
 
     cols_per_row = 3
     for i in range(0, len(items), cols_per_row):
