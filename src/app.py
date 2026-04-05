@@ -292,6 +292,97 @@ def _build_unified_library() -> list[dict]:
 
 
 # -----------------------------------------------------------------------
+# Radar chart helpers
+# -----------------------------------------------------------------------
+
+# Reward-adjacent ROIs excluding the attention network (no double-counting)
+_REWARD_ONLY_ROIS = [
+    "47l", "13l", "11l", "47s",       # Orbitofrontal cortex
+    "10v", "p24", "a24", "d32",        # vmPFC + pregenual ACC
+    "Ig", "PoI1", "AVI", "AAIC",       # Insula
+]
+_SOCIAL_ROIS = ["TGd", "TGv", "TPOJ1", "TPOJ2"]   # Temporal pole + TPO junction
+
+
+def _radar_scores(stats: dict) -> dict[str, float]:
+    """Return the five cognitive-network scores (×10⁻³) used for the radar chart."""
+    pm = stats.get("preds_mean")
+    if pm is None:
+        return {}
+    return {
+        "Visual": brain._safe_roi_mean(pm, brain.VISUAL_ROIS) * 1000,
+        "Language": brain._safe_roi_mean(pm, brain.LANGUAGE_ROIS) * 1000,
+        "Attention": brain._safe_roi_mean(pm, brain.ATTENTION_ROIS) * 1000,
+        "Reward": brain._safe_roi_mean(pm, _REWARD_ONLY_ROIS) * 1000,
+        "Social": brain._safe_roi_mean(pm, _SOCIAL_ROIS) * 1000,
+    }
+
+
+def radar_chart(
+    scores_a: dict,
+    color_a: str,
+    name_a: str,
+    scores_b: dict | None = None,
+    color_b: str | None = None,
+    name_b: str | None = None,
+) -> go.Figure:
+    """Spider / radar chart. Pass scores_b to overlay a second ad."""
+    categories = list(scores_a.keys())
+
+    def _rgba(rgb: str, alpha: float) -> str:
+        return rgb.replace("rgb(", "rgba(").replace(")", f", {alpha})")
+
+    all_vals = list(scores_a.values())
+    if scores_b:
+        all_vals += list(scores_b.values())
+    r_max = max(all_vals) * 1.15 if all_vals else 1.0
+    r_max = max(r_max, 1e-6)
+
+    fig = go.Figure()
+
+    vals_a = [scores_a[c] for c in categories]
+    fig.add_trace(go.Scatterpolar(
+        r=vals_a + [vals_a[0]],
+        theta=categories + [categories[0]],
+        fill="toself",
+        name=name_a,
+        line=dict(color=color_a, width=2),
+        fillcolor=_rgba(color_a, 0.12),
+    ))
+
+    if scores_b and color_b and name_b:
+        vals_b = [scores_b[c] for c in categories]
+        fig.add_trace(go.Scatterpolar(
+            r=vals_b + [vals_b[0]],
+            theta=categories + [categories[0]],
+            fill="toself",
+            name=name_b,
+            line=dict(color=color_b, width=2),
+            fillcolor=_rgba(color_b, 0.12),
+        ))
+
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, r_max],
+                tickfont=dict(size=9),
+                gridcolor="#e5e7eb",
+            ),
+            angularaxis=dict(tickfont=dict(size=11)),
+            bgcolor="white",
+        ),
+        showlegend=bool(scores_b),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
+        height=320,
+        margin=dict(t=20, b=20, l=60, r=60),
+        paper_bgcolor="white",
+        font=dict(size=11),
+    )
+    return fig
+
+
+# -----------------------------------------------------------------------
 # Charts
 # -----------------------------------------------------------------------
 
@@ -427,7 +518,13 @@ def results_panel(label: str, result: dict, color: str, yrange: tuple | None = N
         st.markdown("**Top activated regions**")
         st.plotly_chart(roi_bar_chart(stats, color), use_container_width=True, key=f"roi_{label}")
 
-        with st.expander("Cognitive breakdown"):
+        with st.expander("Cognitive profile"):
+            radar_scores = _radar_scores(stats)
+            if radar_scores:
+                st.plotly_chart(
+                    radar_chart(radar_scores, color, label),
+                    use_container_width=True, key=f"radar_{label}",
+                )
             st.metric("Visual cortex (×10⁻³)", f"{stats['visual_score'] * 1000:.2f}", help="V1 · V2 · V3 · V4 · MT · MST · V3A · V3B")
             st.metric("Language cortex (×10⁻³)", f"{stats['language_score'] * 1000:.2f}", help="Broca (BA44/45) · STS · TE1a · TE1m")
             st.metric("Attention network (×10⁻³)", f"{stats['attention_score'] * 1000:.2f}", help="FEF · IPS1 · VIP · LIPv · LIPd · 7PC")
@@ -499,6 +596,21 @@ def comparison_section(result_a: dict, result_b: dict):
         st.success(f"**Ad B wins** — {abs(delta):.5f} higher mean neural activation than Ad A.")
     else:
         st.success(f"**Ad A wins** — {abs(delta):.5f} higher mean neural activation than Ad B.")
+
+    # Combined radar — cognitive profile overlay
+    radar_a = _radar_scores(stats_a)
+    radar_b = _radar_scores(stats_b)
+    if radar_a and radar_b:
+        radar_col, _ = st.columns([1, 2])
+        with radar_col:
+            st.markdown("**Cognitive profile**")
+            st.plotly_chart(
+                radar_chart(
+                    radar_a, "rgb(59, 130, 246)", "Ad A",
+                    radar_b, "rgb(239, 68, 68)", "Ad B",
+                ),
+                use_container_width=True, key="radar_compare",
+            )
 
     col_chart, col_map = st.columns([1, 2])
 
