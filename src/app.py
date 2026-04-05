@@ -12,6 +12,7 @@ import functools
 import hashlib
 import http.server
 import os
+import socket
 import threading
 from pathlib import Path
 
@@ -106,18 +107,39 @@ st.markdown(
 FILE_SERVER_PORT = 8765
 
 
+class _VideoServer(http.server.HTTPServer):
+    """HTTPServer with SO_REUSEADDR so it can rebind quickly after a hot-reload."""
+    allow_reuse_address = True
+
+
+class _VideoHandler(http.server.SimpleHTTPRequestHandler):
+    """Serves project files with CORS headers so the component iframe can load videos."""
+
+    def end_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+        self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass  # suppress per-request noise in the Streamlit console
+
+
 @st.cache_resource(show_spinner=False)
 def start_file_server() -> int:
     handler = functools.partial(
-        http.server.SimpleHTTPRequestHandler,
+        _VideoHandler,
         directory=str(Path(".").resolve()),
     )
     try:
-        server = http.server.HTTPServer(("127.0.0.1", FILE_SERVER_PORT), handler)
+        server = _VideoServer(("127.0.0.1", FILE_SERVER_PORT), handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
     except OSError:
-        # Port already bound (e.g. after a hot-reload) — existing server still works
-        pass
+        pass  # already running from a previous cache hit
     return FILE_SERVER_PORT
 
 
@@ -137,7 +159,9 @@ def video_player(video_path: str, segment_timestamps: list) -> int:
         st.video(video_path)
         return 0
     seg = _video_player_component(
-        video_url=url, segment_timestamps=segment_timestamps, default=0
+        video_url=url, segment_timestamps=segment_timestamps,
+        height=300,  # initialises iframe at 300px; Streamlit ignores setFrameHeight before componentReady
+        default=0,
     )
     return seg if seg is not None else 0
 

@@ -26,10 +26,7 @@
       send('streamlit:setFrameHeight', { height });
     }
 
-    // Set a sensible initial height before the video loads
-    setFrameHeight(280);
-
-    // Signal ready — Streamlit will send a render event in response
+    // Signal ready first — Streamlit ignores setFrameHeight until after this
     send('streamlit:componentReady', { apiVersion: 1 });
 
     window.addEventListener('message', (event) => {
@@ -39,9 +36,13 @@
       const { video_url, segment_timestamps } = args;
       if (!video_url) return;
 
+      // Set an immediate visible height now that componentReady has been ack'd
+      setFrameHeight(300);
+
       if (v.getAttribute('data-src') !== video_url) {
         v.src = video_url;
         v.setAttribute('data-src', video_url);
+        v.load();
         lastSeg = -1;
       }
 
@@ -56,7 +57,7 @@
         }
       };
 
-      // Once metadata is loaded, resize the iframe to the actual video height
+      // Refine height to exact aspect ratio once metadata arrives
       v.onloadedmetadata = () => {
         if (v.videoWidth && v.videoHeight) {
           const containerWidth = document.documentElement.clientWidth;
