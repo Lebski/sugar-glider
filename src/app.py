@@ -442,34 +442,40 @@ def region_legend():
         st.markdown("""
 | Abbreviation | Full name | System | Description |
 |---|---|---|---|
-| **Visual cortex** ||||
-| V1 | Primary Visual Cortex | Visual | First cortical stage of vision — edges, contrast, basic orientation |
-| V2 | Secondary Visual Cortex | Visual | Passes visual signals to both ventral (what) and dorsal (where) streams |
-| V3 / V3A / V3B | Visual Area V3 | Visual | Processes motion and depth; V3A is strongly driven by motion and optical flow |
-| V4 | Visual Area V4 | Visual | Colour, shape, and object form — critical for brand colour and logo processing |
-| MT | Middle Temporal Area | Visual | Dedicated motion processing; highly responsive to fast cuts and moving objects |
-| MST | Medial Superior Temporal Area | Visual | Optic flow and self-motion perception; responds to wide-field camera movement |
-| DVT | Dorsal Visual Transition Area | Visual | Bridge between motion areas and parietal attention regions |
+| **Visual Cortex** ||||
+| V1 | Primary Visual Cortex | Visual | First cortical stage of vision. Neurons tuned for orientation, edges, contrast, spatial frequency, and binocular disparity. Also processes basic motion direction. |
+| V2 | Secondary Visual Cortex | Visual | Organized into functional stripes that independently process colour, stereoscopic depth, and form. Computes illusory contours and figure-ground segregation. Distributes signals to both ventral ("what") and dorsal ("where") streams. |
+| V3 | Visual Area V3 | Visual | Heterogeneous area processing orientation, colour, disparity, and motion. Distinct from V3A and V3B — the HCP atlas treats all three as separate areas with independent retinotopic maps. |
+| V3A | Visual Area V3A | Visual | Strongly driven by motion and optical flow. Responds to coherent motion patterns and depth-from-motion cues. More motion-selective than V3 proper. |
+| V3B | Visual Area V3B | Visual | Linked to stereoscopic depth and 3D structure-from-motion. Shares some motion sensitivity with V3A but emphasises binocular disparity processing. |
+| V4 | Visual Area V4 | Visual | Key area for colour and intermediate-complexity shape. Contains "glob" (colour-selective) and "interglob" (shape-selective) subregions. First area where robust attentional modulation was demonstrated. Brand/logo recognition requires higher inferotemporal areas beyond V4. |
+| MT | Middle Temporal Area (V5) | Visual | The cortex's primary motion-processing hub — direction-selective neurons predominate. Microstimulation alters perceived motion direction; lesions cause motion blindness. Responds to fast cuts and motion onsets via both V1 and a fast subcortical pathway. |
+| MST | Medial Superior Temporal Area | Visual | Dorsal subdivision (MSTd) contains large-receptive-field neurons tuned to expanding, contracting, and rotating flow fields. Integrates visual self-motion with vestibular signals for heading perception. Wide-field camera movement maps directly to this function. |
+| DVT | Dorsal Transitional Visual Area | Visual / Spatial | A newly described HCP area primarily part of the retrosplenial scene network, involved in spatial scene processing and navigation. Connects to dorsal-stream motion areas (V3A, MT+) and parietal regions (IPS1, LIP, VIP); role is scene-spatial processing, not simply a motion-to-attention relay. |
 | **Language** ||||
-| 44 / 45 | Broca's Area | Language | Core speech production (44) and comprehension (45); activated by voiceover and dialogue |
-| STSdp / STSda | Superior Temporal Sulcus — dorsal | Language | Integrates audio and visual speech cues; processes talking faces and lip sync |
-| STSvp / STSva | Superior Temporal Sulcus — ventral | Language | Higher-level semantic integration of spoken language in context |
-| TE1a / TE1m | Temporal Area TE1 | Language | Auditory association cortex; processes voice identity, tone, and non-speech sounds |
+| 44 / 45 | Broca's Area (pars opercularis / pars triangularis) | Language | BA44 is linked to phonological processing, syntactic structure building, and articulatory planning. BA45 to controlled semantic retrieval and top-down language processing. The production/comprehension split is an outdated simplification — both contribute to both. Also involved in working memory and cognitive control. |
+| STSdp / STSda | Superior Temporal Sulcus — dorsal | Language / Audiovisual | Most consistently identified region for audiovisual speech integration. Bimodal neurons respond to both auditory and visual speech. Processes talking faces, lip sync, and voice-face binding. Also contributes to broader phonological and language comprehension. |
+| STSvp / STSva | Superior Temporal Sulcus — ventral | Language / Multimodal Semantic | Receives strong visual inputs from inferior temporal cortex and parietal areas. Functions as a multimodal semantic integration zone — binding visual object/scene information with language meaning, distinct from dorsal STS which integrates audiovisual speech signals. |
+| TE1a / TE1m | Temporal Area TE1 | Multimodal / Ventral Visual Stream | Located on the middle temporal gyrus. Primary function is high-level visual object and face processing at the end of the ventral "what" stream — not auditory association. Do connect to language regions via the arcuate fasciculus, making language-network association defensible, but voice identity belongs to temporal voice areas along the STS. |
 | **Attention** ||||
-| FEF | Frontal Eye Field | Attention | Controls voluntary gaze and directs attention to salient regions of the screen |
-| IPS1 | Intraparietal Sulcus Area 1 | Attention | Holds the attentional spotlight; tracks multiple objects across time |
-| VIP | Ventral Intraparietal Area | Attention | Integrates visual, tactile, and auditory signals; responds to stimuli near the body |
-| LIPv / LIPd | Lateral Intraparietal Area | Attention | Encodes priority maps — where in the scene attention should go next |
-| 7PC | Parietal Area 7PC | Attention | Top-down attentional control and working memory for visual locations |
+| FEF | Frontal Eye Field | Attention (Dorsal Network) | Controls voluntary saccadic eye movements. Sends top-down feedback projections to visual cortex (especially V4) that enhance processing at attended locations. Part of the dorsal frontoparietal attention network for goal-directed orienting. Salience-driven (bottom-up) attention is more the province of the ventral attention network (TPJ). |
+| IPS1 | Intraparietal Sulcus Area 1 | Attention | Responds poorly to unattended stimuli — the "attentional spotlight" metaphor is reasonable. More precisely linked to sustained spatial attention and visual short-term memory than to multiple object tracking, which implicates more anterior IPS. |
+| VIP | Ventral Intraparietal Area | Attention / Multisensory | Neurons respond to visual, tactile, and auditory stimulation with receptive fields anchored to peripersonal space (especially around the face and head). Also integrates vestibular signals for heading discrimination. Additional roles in defensive behaviour and numerosity coding. |
+| LIPd | Lateral Intraparietal Area — dorsal | Attention / Oculomotor | Integrates bottom-up salience and top-down biases to determine where gaze should go next (priority map). LIPd is primarily oculomotor — encodes saccade intentions. |
+| LIPv | Lateral Intraparietal Area — ventral | Attention | Contributes to both attentional and oculomotor processes. Together with LIPd, LIP is one of the best-supported priority-map areas in the brain. |
+| 7PC | Parietal Area 7PC | Attention / Visuomotor | A visuomotor integration hub receiving inputs from intraparietal areas (VIP, LIP) and somatosensory cortex, with projections to premotor regions for action guidance. Part of the dorsal attention network; primary top-down control comes from DLPFC and FEF. |
 | **Reward / Impact** ||||
-| 47l / 13l / 11l / 47s | Orbitofrontal Cortex | Reward | Computes subjective value and expected reward; predicts willingness to pay |
-| 11m / 25 / 10v | vmPFC / mPFC | Reward | Self-referential processing and reward anticipation; active when content feels personally relevant |
-| p24 / a24 / d32 | Anterior Cingulate Cortex | Reward | Signals motivational salience and effort allocation; bridges emotion and action |
-| Ig / PoI1 / AVI / AAIC | Insula | Reward | Interoceptive awareness and emotional salience — the neurological basis of gut feeling |
-| TGd / TGv | Temporal Pole | Reward | Links perception to emotional memory; key for brand familiarity and social recognition |
+| 13l / 11l | Medial Orbitofrontal Cortex | Reward / Value | Where economic value computation actually occurs. Neurons encode subjective value; activity correlates with willingness to pay. Represents hedonic value of stimuli across modalities — food, money, social, aesthetic. |
+| 47l / 47s | Lateral Orbitofrontal Cortex | Language / Cognitive Control | Distinct from medial OFC value regions. Involved in non-reward expectation violations, behavioural inhibition, and language-related semantic processing. Grouping with 13l/11l as a unified value system conflates two different functional subsystems. |
+| 10v | Area 10v (vmPFC) | Reward / Self-Referential | Part of vmPFC. Linked to self-referential processing, outcome evaluation, and expected value computation. Active when content feels personally relevant. Reward *anticipation* is more strongly associated with the ventral striatum; vmPFC computes expected value and evaluates outcomes. |
+| 25 | Subgenual Cingulate Cortex | Emotion / Autonomic | A critical node for mood regulation — hyperactivity is a biomarker for treatment-resistant depression; deep brain stimulation here treats refractory depression. Involved in autonomic regulation and negative affect, not reward anticipation. |
+| p24 / a24 / d32 | Pregenual Anterior Cingulate Cortex | Reward Evaluation / Emotion | These are **pregenual** ACC areas. More associated with reward evaluation, emotional processing, interoception (p24), and action inhibition (p24c) than with effort allocation, which implicates dorsal ACC (24dd/24dv) not included in TRIBE v2's Impact ROIs. |
+| Ig / PoI1 / AVI / AAIC | Insula (posterior → anterior) | Interoception / Salience | Posterior insula (Ig, PoI1) receives primary interoceptive, somatosensory, and pain input. Anterior insula (AVI, AAIC) supports conscious interoceptive awareness, emotional salience, and is a core node of the salience network. Key gradient: posterior = raw body signals; anterior = conscious awareness and salience detection. |
+| TGd / TGv | Temporal Pole (dorsal / ventral) | Social / Emotional Memory | Binds complex perceptual inputs to visceral emotional responses. Involved in face-to-person memory linking, theory of mind, and semantic memory. Left hemisphere more verbal-semantic; right more face/emotion. "Brand familiarity" is a reasonable extrapolation from entity-familiarity functions. |
 | **Other** ||||
-| TPOJ1 / TPOJ2 | Temporo-Parieto-Occipital Junction | Multisensory | Integrates audio-visual inputs; involved in social cognition and perspective-taking |
-| PH / PGp | Parieto-occipital areas | Spatial | Scene perception and spatial layout processing |
+| TPOJ1 / TPOJ2 | Temporo-Parieto-Occipital Junction | Multisensory / Social | TPOJ1 links higher auditory and higher visual areas. The broader TPJ is well-established for social cognition, theory of mind, perspective-taking, and detecting incongruities between expected and presented stimuli. |
+| PGp | Inferior Parietal Cortex (angular gyrus region) | Spatial / Scene | Classified under Inferior Parietal Cortex in the HCP atlas (not parieto-occipital). Shows strong selective activation for scenes. Part of the angular gyrus region involved in scene perception, spatial layout, and episodic memory retrieval. |
+| PH | MT+ Complex — Lateral Occipitotemporal Area | Visual / Object | Part of the MT+ complex in the HCP atlas (not parieto-occipital). Activated by tools and body parts. Should not be confused with PHA1–3 (parahippocampal areas), which are the actual scene-selective regions containing the parahippocampal place area. |
 """)
 
 
